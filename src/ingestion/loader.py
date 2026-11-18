@@ -1,17 +1,43 @@
 import csv
 from dataclasses import dataclass
+from io import TextIOWrapper
 from pathlib import Path
+from typing import BinaryIO
 from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 import httpx
 from pypdf import PdfReader
 
+SUPPORTED_SUFFIXES = frozenset({".pdf", ".csv", ".txt", ".md"})
+
 
 @dataclass(frozen=True)
 class Document:
     text: str
     location: str
+
+
+def load_file(stream: BinaryIO, suffix: str) -> list[Document]:
+    if suffix not in SUPPORTED_SUFFIXES:
+        raise ValueError("Supported formats are PDF, CSV, TXT, and Markdown.")
+    if suffix == ".pdf":
+        return [
+            Document(page.extract_text() or "", f"page {index}")
+            for index, page in enumerate(PdfReader(stream).pages, 1)
+        ]
+
+    text = TextIOWrapper(stream, encoding="utf-8-sig", newline="")
+    try:
+        if suffix == ".csv":
+            return [
+                Document(", ".join(f"{key}: {value}" for key, value in row.items()), f"record {index}")
+                for index, row in enumerate(csv.DictReader(text), 1)
+                if any(value for value in row.values())
+            ]
+        return [Document(text.read(), "document")]
+    finally:
+        text.detach()
 
 
 def load_documents(source: str) -> tuple[str, list[Document]]:
@@ -24,21 +50,5 @@ def load_documents(source: str) -> tuple[str, list[Document]]:
         return source, [Document(soup.get_text(" ", strip=True), "web page")]
 
     path = Path(source).resolve()
-    suffix = path.suffix.lower()
-    if suffix == ".pdf":
-        documents = [
-            Document(page.extract_text() or "", f"page {index}")
-            for index, page in enumerate(PdfReader(path).pages, 1)
-        ]
-    elif suffix == ".csv":
-        with path.open(encoding="utf-8-sig", newline="") as stream:
-            documents = [
-                Document(", ".join(f"{key}: {value}" for key, value in row.items()), f"record {index}")
-                for index, row in enumerate(csv.DictReader(stream), 1)
-                if any(value for value in row.values())
-            ]
-    elif suffix in {".txt", ".md"}:
-        documents = [Document(path.read_text(encoding="utf-8-sig"), "document")]
-    else:
-        raise ValueError(f"Unsupported file type: {suffix}")
-    return str(path), documents
+    with path.open("rb") as stream:
+        return str(path), load_file(stream, path.suffix.lower())

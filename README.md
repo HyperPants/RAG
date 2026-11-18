@@ -1,41 +1,64 @@
 # RAG
 
-A local retrieval-augmented generation starter. Index PDFs with extractable text, UTF-8 CSVs, plain text, Markdown, and HTTP(S) pages. Ask questions through FastAPI and get an answer with numbered citations and the retrieved excerpts.
+A local retrieval-augmented generation (RAG) app for asking questions about your documents. Its browser interface, **Marginalia**, lets you upload multiple files, ask questions, and inspect the source excerpts behind each answer.
 
-## Setup and run
+## Quick start
 
-Install Python 3.12 or later. From the repository root in PowerShell, run:
+Install Python 3.12 or later. From the repository root in PowerShell, create a virtual environment and install the dependencies. If you already have a `.venv`, rerun just the second command to install the upload dependency.
 
 ```powershell
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Set `OPENAI_API_KEY` in the local `.env` file. For a fresh clone, create it with `Copy-Item .env.example .env` first. Exported environment variables take precedence over `.env`.
+Set `OPENAI_API_KEY` in your local `.env`. On a fresh clone, create the file with `Copy-Item .env.example .env` first. An environment variable of the same name takes precedence. The key needs access to the OpenAI API.
 
-Index a file or URL, then start the API:
+Start the server:
 
 ```powershell
-.\.venv\Scripts\python.exe main.py ingest "C:\path\to\document.pdf" "https://example.com"
 .\.venv\Scripts\python.exe main.py serve
 ```
 
-Open [Swagger UI](http://127.0.0.1:8000/docs) and call `POST /query` with a JSON body such as `{"question": "What does the document say about refunds?"}`. The response contains the answer and a list of excerpts with citation numbers, source paths or URLs, locations, and cosine scores. `GET /health` checks that the API responds.
+## Upload and ask in Marginalia
+
+1. Open [Marginalia](http://127.0.0.1:8000/).
+2. In **Add documents**, click **Choose files** or drag files onto the drop zone. You can add multiple PDFs, UTF-8 CSVs, plain text files, or Markdown files in one batch. PDFs need an extractable text layer.
+3. Wait for the per-file indexing results. Successful files are ready to query immediately, even if some files in the batch fail.
+4. Ask a question, such as “What methods did the papers use?” Select a numbered citation in the answer to open the retrieved excerpt and see its source location.
+
+The extracted excerpts and vectors persist in SQLite across restarts. Reuploading the same file under the same name replaces its indexed excerpts. Uploading changed content creates a separate indexed entry.
+
+## CLI and API
+
+The CLI also accepts HTTP(S) pages. To index multiple files or URLs, pass each as a separate argument.
+
+```powershell
+.\.venv\Scripts\python.exe main.py ingest ".\Documents\2404.03936v2.pdf" "https://example.com"
+```
+
+Use [Swagger UI](http://127.0.0.1:8000/docs) to try the API while the server is running.
+
+| Endpoint | Purpose |
+| --- | --- |
+| `POST /ingest` | Upload a multipart request with one or more `files` fields. Returns a result for each file. |
+| `POST /query` | Send JSON such as `{"question": "What were the main findings?"}`. Returns an answer and retrieved excerpts with citations, locations, and cosine scores. |
+| `GET /health` | Check whether the server is responding. |
 
 ## Architecture
 
 ```text
-Index  File or URL -> loader -> overlapping chunks -> OpenAI embeddings -> SQLite
-Query  Question -> OpenAI embedding -> SQLite cosine search -> prompt -> OpenAI answer
+Upload or CLI source -> loader -> overlapping chunks -> OpenAI embeddings -> SQLite
+Question -> OpenAI embedding -> SQLite cosine search -> prompt -> OpenAI answer
 ```
 
-- `main.py` wires the CLI and API together. `src/ingestion` keeps PDF page and CSV record locations so the API can report where each excerpt came from.
-- `src/chunking` uses character windows after normalizing whitespace. `src/embeddings` batches requests. `src/vectordb` stores normalized vectors and scans the active model's vectors for exact cosine similarity. This setup is suited to a small local corpus.
-- `src/retrieval`, `src/prompts`, and `src/llm` build answers from the top matches. `src/api` exposes them on localhost.
-- `config.yaml` sets the models, chunk size and overlap in characters, database path, and number of matches. Relative database paths are resolved from the repository root. Reingesting a source replaces its chunks for the active model after its embeddings succeed. Reingest after changing the embedding model or chunk settings.
-- Logs go to `logs/app.log`. Git ignores logs, the local SQLite database under `data/`, and `.env`.
+- `main.py` wires together the CLI and FastAPI server. Both ingestion paths share the indexer in `src/ingestion`.
+- `src/api` provides the upload and query endpoints. `src/api/web` contains the HTML, CSS, and JavaScript for Marginalia.
+- `src/chunking` normalizes whitespace and creates overlapping character windows. `src/embeddings` batches embedding requests. `src/vectordb` runs exact cosine search over the stored vectors for the active embedding model.
+- `src/retrieval`, `src/prompts`, and `src/llm` use the top matches to generate answers. Source metadata preserves PDF page numbers and CSV record numbers.
+- `config.yaml` sets the models, chunk size and overlap, database path, and number of matches. Relative database paths are resolved from the repository root. Reindex your sources after changing the embedding model or chunk settings.
+- Git ignores `.env`, the default database under `data/`, and `logs/app.log`.
 
-Ingestion sends chunks to OpenAI for embedding. Queries send the question and retrieved excerpts to OpenAI for answer generation. Website ingestion reads returned HTML and PDF ingestion extracts the text layer.
+Ingestion sends extracted text to OpenAI for embedding. Queries send the question and retrieved excerpts to OpenAI for answer generation.
 
 ## Tests
 
@@ -43,7 +66,7 @@ Ingestion sends chunks to OpenAI for embedding. Queries send the question and re
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Tests use a temporary SQLite database and simulated OpenAI responses, so they run without an API key.
+Tests use a temporary SQLite database and simulated model responses, so they run without an API key. They cover document loading, chunking, retrieval, and partial success in a multi-file upload.
 
 ## References
 

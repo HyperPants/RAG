@@ -100,3 +100,35 @@ def test_load_pdf(tmp_path):
     assert load_documents(str(path)) == (
         str(path.resolve()), [Document("A PDF reference.", "page 1")]
     )
+
+
+def test_multi_file_upload_indexes_successes_for_immediate_retrieval(tmp_path):
+    from src.ingestion.indexer import Indexer
+
+    class TestEmbedder:
+        def embed(self, texts):
+            return [[1.0, 0.0] if "pear" in text else [0.0, 1.0] for text in texts]
+
+    embedder = TestEmbedder()
+    store = VectorStore(tmp_path / "vectors.sqlite3", "test-model")
+    indexer = Indexer(embedder, store, size=100, overlap=0)
+    llm = SimpleNamespace(answer=lambda question, hits: hits[0].text)
+    app = create_app(Retriever(embedder, store, top_k=3), llm, indexer)
+    with TestClient(app) as client:
+        batch = [
+            ("files", ("fruit.txt", b"Green pear")),
+            ("files", ("bad.pdf", b"Invalid PDF")),
+            ("files", ("fruit.txt", b"Red apple")),
+        ]
+        assert client.post("/ingest", files=batch, headers={"Origin": "https://other.example"}).status_code == 403
+        upload = client.post("/ingest", files=batch, headers={"Origin": "http://testserver"})
+        assert upload.status_code == 200
+        first, failed, last = upload.json()
+        assert first == last == {"filename": "fruit.txt", "chunks": 1, "error": None}
+        assert failed["filename"] == "bad.pdf"
+        assert failed["error"]
+        assert client.post("/ingest", files=[batch[0]]).json() == [first]
+
+        result = client.post("/query", json={"question": "pear"}).json()
+        assert result["answer"] == "Green pear"
+        assert [hit["text"] for hit in result["sources"]] == ["Green pear", "Red apple"]

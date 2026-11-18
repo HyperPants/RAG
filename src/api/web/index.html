@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Marginalia · Document Q&A</title>
+  <link rel="stylesheet" href="/assets/app.css">
+  <script defer src="/assets/app.js"></script>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="/" aria-label="Marginalia home"><span class="brand-icon" aria-hidden="true">m</span> Marginalia</a>
+      <a class="docs" href="/docs">API docs <span aria-hidden="true">↗</span></a>
+    </div>
+  </header>
+  <main class="shell">
+    <section class="hero" aria-labelledby="title">
+      <div class="hero-copy">
+        <h1 id="title">Ask your documents.</h1>
+        <p>Get answers from your indexed files and see the excerpts behind them.</p>
+      </div>
+      <form id="question-form">
+        <label for="question">Your question</label>
+        <div class="composer">
+          <textarea id="question" name="question" rows="2" maxlength="4000" required placeholder="What do the papers say about…"></textarea>
+          <button id="submit" type="submit">Ask <span aria-hidden="true">↑</span></button>
+        </div>
+      </form>
+      <div class="suggestions" aria-label="Example questions">
+        <button type="button">What are the main findings?</button>
+        <button type="button">Which methods were used?</button>
+        <button type="button">What limitations are mentioned?</button>
+      </div>
+    </section>
+    <section class="panel upload-panel" aria-labelledby="upload-title">
+      <div>
+        <h2 id="upload-title">Add documents</h2>
+        <p id="upload-help">PDF, CSV, TXT, or Markdown. Select several files at once.</p>
+      </div>
+      <div class="upload-controls">
+        <input id="upload-files" type="file" accept=".pdf,.csv,.txt,.md" multiple hidden>
+        <button id="drop-zone" type="button" aria-describedby="upload-help">
+          <span aria-hidden="true">↑</span> Choose files or drop them here
+        </button>
+      </div>
+      <p id="upload-status" role="status" hidden></p>
+      <ul id="upload-results" class="upload-results" hidden></ul>
+    </section>
+    <div class="results">
+      <section class="panel answer-panel" aria-labelledby="answer-title">
+        <div class="panel-header">
+          <h2 id="answer-title">Answer</h2>
+        </div>
+        <p id="status" role="status">Ask a question to get started.</p>
+        <div id="answer" class="answer" tabindex="-1" hidden></div>
+        <p id="error" role="alert" hidden></p>
+      </section>
+      <section class="panel sources-panel" aria-labelledby="sources-title">
+        <div class="panel-header">
+          <h2 id="sources-title">Sources</h2>
+          <span id="source-count" class="count" hidden></span>
+        </div>
+        <p id="sources-empty">Retrieved excerpts will appear here.</p>
+        <ol id="sources" class="sources"></ol>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

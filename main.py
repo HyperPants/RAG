@@ -1,15 +1,16 @@
 import argparse
-import logging
+import csv
 import os
 
-from openai import OpenAI, OpenAIError, RateLimitError
+from openai import OpenAI, OpenAIError
 import httpx
+from pypdf.errors import PyPdfError
 import uvicorn
 
 from src.api.routes import create_app
-from src.chunking.chunker import split_documents
 from src.embeddings.embedder import Embedder
-from src.ingestion.loader import load_documents
+from src.embeddings.errors import embedding_error_message
+from src.ingestion.indexer import Indexer
 from src.llm.llm_client import LLMClient
 from src.retrieval.retriever import Retriever
 from src.utils.helpers import ROOT, configure_logging, load_config
@@ -34,38 +35,21 @@ def main() -> None:
         models = config["models"]
         embedder = Embedder(client, models["embedding"])
         store = VectorStore(ROOT / config["database"]["path"], embedder.model)
+        indexer = Indexer(embedder, store, **config["chunking"])
         if args.command == "serve":
             retriever = Retriever(embedder, store, config["retrieval"]["top_k"])
-            uvicorn.run(create_app(retriever, LLMClient(client, models["answer"])),
+            uvicorn.run(create_app(retriever, LLMClient(client, models["answer"]), indexer),
                         host="127.0.0.1", port=args.port)
             return
 
         for source in args.sources:
             try:
-                identifier, documents = load_documents(source)
-                chunks = split_documents(documents, **config["chunking"])
-                if not chunks:
-                    raise ValueError("No extractable text.")
-                vectors = embedder.embed([chunk.text for chunk in chunks])
-                store.replace(identifier, chunks, vectors)
-            except RateLimitError as error:
-                if error.code == "credit_balance_exhausted":
-                    message = "OpenAI reports no available prepaid API credits for this key's organization."
-                elif error.code in {"insufficient_quota", "usage_limit_exceeded", "organization_usage_limit_exceeded"}:
-                    message = "OpenAI API quota is unavailable. Check API billing, credits, and usage limits."
-                elif error.code in {"organization_spend_limit_exceeded", "project_spend_limit_exceeded"}:
-                    message = "An OpenAI API spend limit was reached. Check organization and project limits."
-                elif error.code in {"rate_limit_exceeded", "slow_down"}:
-                    message = "OpenAI temporarily throttled embedding requests. Wait before retrying."
-                else:
-                    message = "OpenAI rejected the embedding request with HTTP 429. Check both API quota and rate limits."
-                parser.exit(1, f"{message}\n")
+                count = indexer.index_source(source)
             except OpenAIError as error:
-                parser.exit(1, f"Embedding request failed ({type(error).__name__}).\n")
-            except (OSError, ValueError, httpx.HTTPError) as error:
+                parser.exit(1, f"{embedding_error_message(error)}\n")
+            except (OSError, ValueError, httpx.HTTPError, PyPdfError, csv.Error) as error:
                 parser.exit(1, f"Cannot index {source}: {error}\n")
-            logging.info("Indexed %d chunks", len(chunks))
-            print(f"Indexed {len(chunks)} chunks from {source}")
+            print(f"Indexed {count} chunks from {source}")
 
 
 if __name__ == "__main__":
