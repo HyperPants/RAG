@@ -1,0 +1,10 @@
+models:
+  embedding: text-embedding-3-small
+  answer: gpt-4o-mini
+chunking:
+  size: 1200
+  overlap: 200
+database:
+  path: data/vectors.sqlite3
+retrieval:
+  top_k: 5
