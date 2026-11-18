@@ -2,7 +2,7 @@ import argparse
 import logging
 import os
 
-from openai import OpenAI, OpenAIError
+from openai import OpenAI, OpenAIError, RateLimitError
 import httpx
 import uvicorn
 
@@ -48,6 +48,18 @@ def main() -> None:
                     raise ValueError("No extractable text.")
                 vectors = embedder.embed([chunk.text for chunk in chunks])
                 store.replace(identifier, chunks, vectors)
+            except RateLimitError as error:
+                if error.code == "credit_balance_exhausted":
+                    message = "OpenAI reports no available prepaid API credits for this key's organization."
+                elif error.code in {"insufficient_quota", "usage_limit_exceeded", "organization_usage_limit_exceeded"}:
+                    message = "OpenAI API quota is unavailable. Check API billing, credits, and usage limits."
+                elif error.code in {"organization_spend_limit_exceeded", "project_spend_limit_exceeded"}:
+                    message = "An OpenAI API spend limit was reached. Check organization and project limits."
+                elif error.code in {"rate_limit_exceeded", "slow_down"}:
+                    message = "OpenAI temporarily throttled embedding requests. Wait before retrying."
+                else:
+                    message = "OpenAI rejected the embedding request with HTTP 429. Check both API quota and rate limits."
+                parser.exit(1, f"{message}\n")
             except OpenAIError as error:
                 parser.exit(1, f"Embedding request failed ({type(error).__name__}).\n")
             except (OSError, ValueError, httpx.HTTPError) as error:
