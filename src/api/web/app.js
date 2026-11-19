@@ -183,11 +183,40 @@ dropZone.addEventListener("drop", (event) => {
   indexFiles(Array.from(event.dataTransfer.files));
 });
 
-async function indexFiles(files) {
-  if (!files.length || dropZone.disabled) return;
+async function sendUploads(files, allowDuplicate = false) {
   const body = new FormData();
   for (const file of files) body.append("files", file);
+  const url = allowDuplicate ? "/ingest?allow_duplicate=true" : "/ingest";
+  const response = await fetch(url, { method: "POST", body });
+  if (!response.ok) {
+    const payload = await response.json().catch(() => ({}));
+    throw new Error(typeof payload.detail === "string" ? payload.detail : "Upload failed. Please try again.");
+  }
+  return response.json();
+}
 
+function confirmDuplicates(results) {
+  const dialog = document.querySelector("#duplicate-dialog");
+  const list = document.querySelector("#duplicate-files");
+  list.replaceChildren();
+  for (const { filename, duplicate_source } of results) {
+    const row = document.createElement("li");
+    row.textContent = filename + " matches " + sourceName(duplicate_source);
+    list.append(row);
+  }
+  return confirmAction(dialog, "upload");
+}
+
+function confirmAction(dialog, expected) {
+  dialog.returnValue = "";
+  return new Promise((resolve) => {
+    dialog.showModal();
+    dialog.addEventListener("close", () => resolve(dialog.returnValue === expected), { once: true });
+  });
+}
+
+async function indexFiles(files) {
+  if (!files.length || dropZone.disabled) return;
   dropZone.disabled = true;
   uploadResults.replaceChildren();
   uploadResults.hidden = true;
@@ -196,19 +225,32 @@ async function indexFiles(files) {
   uploadStatus.textContent = "Indexing " + files.length + " " + fileLabel + "…";
 
   try {
-    const response = await fetch("/ingest", { method: "POST", body });
-    if (!response.ok) {
-      const payload = await response.json().catch(() => ({}));
-      throw new Error(typeof payload.detail === "string" ? payload.detail : "Upload failed. Please try again.");
+    const results = await sendUploads(files);
+    const duplicates = results.flatMap((result, index) => result.duplicate_source ? [index] : []);
+    if (duplicates.length) {
+      uploadStatus.textContent = "Waiting for your decision on duplicate files…";
+      if (await confirmDuplicates(duplicates.map((index) => results[index]))) {
+        uploadStatus.textContent = "Indexing the confirmed files…";
+        try {
+          const retries = await sendUploads(duplicates.map((index) => files[index]), true);
+          duplicates.forEach((index, position) => { results[index] = retries[position]; });
+        } catch (failure) {
+          for (const index of duplicates) {
+            results[index] = { filename: results[index].filename, error: failure.message };
+          }
+        }
+      }
     }
-    const results = await response.json();
+
     let indexed = 0;
     for (const result of results) {
       const row = document.createElement("li");
       const name = document.createElement("span");
       name.textContent = result.filename;
       const outcome = document.createElement("span");
-      if (result.error) {
+      if (result.duplicate_source) {
+        outcome.textContent = "Duplicate skipped";
+      } else if (result.error) {
         outcome.className = "upload-failure";
         outcome.textContent = result.error;
       } else {
@@ -226,5 +268,101 @@ async function indexFiles(files) {
     uploadStatus.textContent = failure.message || "Upload failed. Please try again.";
   } finally {
     dropZone.disabled = false;
+    refreshLibrary();
   }
 }
+
+const libraryCount = document.querySelector("#library-count");
+const libraryStatus = document.querySelector("#library-status");
+const libraryDocuments = document.querySelector("#library-documents");
+const libraryRefresh = document.querySelector("#library-refresh");
+const libraryAction = document.querySelector("#library-action");
+let libraryRequest;
+let deletingDocument = false;
+
+async function deleteIndexedDocument(source, button) {
+  if (deletingDocument) return;
+  deletingDocument = true;
+  const name = sourceName(source);
+
+  try {
+    const dialog = document.querySelector("#delete-dialog");
+    document.querySelector("#delete-name").textContent = name;
+    if (!(await confirmAction(dialog, "delete"))) return;
+
+    button.disabled = true;
+    libraryAction.classList.remove("is-error");
+    libraryAction.textContent = "Removing " + name + "…";
+    const query = new URLSearchParams({ source });
+    const response = await fetch("/documents?" + query, { method: "DELETE" });
+    if (!response.ok && response.status !== 404) throw new Error("Delete failed");
+    libraryAction.textContent = response.status === 404
+      ? name + " was already removed from the index."
+      : name + " was removed from the index.";
+    await refreshLibrary();
+    libraryRefresh.focus();
+  } catch {
+    libraryAction.classList.add("is-error");
+    libraryAction.textContent = "Could not remove " + name + ". Try again.";
+  } finally {
+    button.disabled = false;
+    deletingDocument = false;
+  }
+}
+
+async function refreshLibrary() {
+  libraryRequest?.abort();
+  const request = new AbortController();
+  libraryRequest = request;
+  const timeout = setTimeout(() => request.abort(), 10000);
+  libraryStatus.textContent = "Loading indexed documents…";
+  try {
+    const response = await fetch("/documents", { cache: "no-store", signal: request.signal });
+    if (!response.ok) throw new Error("Document list unavailable.");
+    const documents = await response.json();
+    if (libraryRequest !== request) return;
+
+    const rows = documents.map(({ source, chunks }) => {
+      const row = document.createElement("li");
+      const label = document.createElement("div");
+      const name = document.createElement("strong");
+      name.textContent = sourceName(source);
+      const origin = document.createElement("span");
+      origin.className = "library-origin";
+      const upload = /^uploads\/([a-f0-9]{64})\//.exec(source);
+      origin.textContent = upload ? "Browser upload · " + upload[1].slice(0, 8) : source;
+      const excerpts = document.createElement("span");
+      excerpts.className = "library-excerpts";
+      excerpts.textContent = chunks + (chunks === 1 ? " excerpt" : " excerpts");
+      const actions = document.createElement("div");
+      actions.className = "library-row-actions";
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "library-delete";
+      remove.textContent = "Delete";
+      remove.setAttribute("aria-label", "Delete " + name.textContent + " from the index");
+      remove.addEventListener("click", () => deleteIndexedDocument(source, remove));
+      actions.append(excerpts, remove);
+      label.append(name, origin);
+      row.append(label, actions);
+      return row;
+    });
+    libraryDocuments.replaceChildren(...rows);
+    libraryDocuments.hidden = !rows.length;
+    libraryCount.textContent = String(rows.length);
+    libraryCount.hidden = false;
+    libraryStatus.textContent = rows.length
+      ? "Available to query with the current embedding model."
+      : "No documents indexed for the current embedding model.";
+  } catch {
+    if (libraryRequest !== request) return;
+    libraryCount.hidden = true;
+    libraryDocuments.hidden = true;
+    libraryStatus.textContent = "Could not load indexed documents. Try refreshing the list.";
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+libraryRefresh.addEventListener("click", refreshLibrary);
+refreshLibrary();

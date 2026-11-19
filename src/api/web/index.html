@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Marginalia · Document Q&A</title>
-  <link rel="stylesheet" href="/assets/app.css">
-  <script defer src="/assets/app.js"></script>
+  <link rel="stylesheet" href="/assets/app.css?v=4">
+  <script defer src="/assets/app.js?v=4"></script>
 </head>
 <body>
   <header class="topbar">
@@ -47,6 +47,34 @@
       <p id="upload-status" role="status" hidden></p>
       <ul id="upload-results" class="upload-results" hidden></ul>
     </section>
+    <dialog class="action-dialog" id="duplicate-dialog" aria-labelledby="duplicate-title" aria-describedby="duplicate-help">
+      <h2 id="duplicate-title">These files are already indexed</h2>
+      <p id="duplicate-help">Skip the matching files, or upload them anyway?</p>
+      <ul id="duplicate-files"></ul>
+      <form method="dialog" class="dialog-actions">
+        <button value="skip" autofocus>Skip duplicates</button>
+        <button value="upload">Upload anyway</button>
+      </form>
+    </dialog>
+    <dialog class="action-dialog" id="delete-dialog" aria-labelledby="delete-title" aria-describedby="delete-help">
+      <h2 id="delete-title">Delete indexed document?</h2>
+      <p id="delete-help"><strong id="delete-name"></strong> and its excerpts will be removed from the index.</p>
+      <form method="dialog" class="dialog-actions">
+        <button value="cancel" autofocus>Cancel</button>
+        <button value="delete" class="danger-button">Delete from index</button>
+      </form>
+    </dialog>
+    <details class="panel library-panel">
+      <summary>Indexed documents <span id="library-count" class="count" hidden></span></summary>
+      <div class="library-body">
+        <div class="library-toolbar">
+          <p id="library-status" role="status">The document list will load when the page script starts.</p>
+          <button id="library-refresh" type="button">Refresh</button>
+        </div>
+        <p id="library-action" role="status"></p>
+        <ul id="library-documents" class="library-documents" hidden></ul>
+      </div>
+    </details>
     <div class="results">
       <section class="panel answer-panel" aria-labelledby="answer-title">
         <div class="panel-header">

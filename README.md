@@ -26,7 +26,7 @@ Start the server:
 3. Wait for the per-file indexing results. Successful files are ready to query immediately, even if some files in the batch fail.
 4. Ask a question, such as “What methods did the papers use?” Select a numbered citation in the answer to open the retrieved excerpt and see its source location.
 
-The extracted excerpts and vectors persist in SQLite across restarts. Reuploading the same file under the same name replaces its indexed excerpts. Uploading changed content creates a separate indexed entry.
+Open **Indexed documents** to see the saved sources and excerpt counts. The list updates after uploads. Use **Refresh** after indexing files or URLs from another terminal. To remove an outdated source, choose **Delete** next to it and confirm. This removes its excerpts and embeddings for the active model from the index. The original file stays on disk. The extracted excerpts and vectors persist in SQLite across restarts. Marginalia checks for matching files and identical indexed excerpts before embedding an upload. If it finds a match, you can skip the file or choose **Upload anyway**. Confirming an identical upload with the same name refreshes its existing entry. A matching file with a different name gets a separate entry.
 
 ## CLI and API
 
@@ -40,8 +40,10 @@ Use [Swagger UI](http://127.0.0.1:8000/docs) to try the API while the server is 
 
 | Endpoint | Purpose |
 | --- | --- |
-| `POST /ingest` | Upload a multipart request with one or more `files` fields. Returns a result for each file. |
+| `POST /ingest` | Upload a multipart request with one or more `files` fields. Returns a result for each file, including any duplicate match. Use `allow_duplicate=true` to explicitly index matching files. |
 | `POST /query` | Send JSON such as `{"question": "What were the main findings?"}`. Returns an answer and retrieved excerpts with citations, locations, and cosine scores. |
+| `GET /documents` | List indexed sources and their excerpt counts for the active embedding model. |
+| `DELETE /documents?source=...` | Remove a source from the active model’s index. Use the exact source identifier from the list. |
 | `GET /health` | Check whether the server is responding. |
 
 ## Architecture

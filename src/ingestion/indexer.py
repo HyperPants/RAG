@@ -1,12 +1,19 @@
 from hashlib import file_digest
 import logging
 from pathlib import Path
+from threading import Lock
 from typing import BinaryIO
 
-from src.chunking.chunker import split_documents
+from src.chunking.chunker import Chunk, split_documents
 from src.embeddings.embedder import Embedder
 from src.ingestion.loader import Document, load_documents, load_file
 from src.vectordb.vector_store import VectorStore
+
+
+class DuplicateUpload(Exception):
+    def __init__(self, source: str):
+        super().__init__(source)
+        self.source = source
 
 
 class Indexer:
@@ -15,21 +22,33 @@ class Indexer:
         self.store = store
         self.size = size
         self.overlap = overlap
+        self.upload_lock = Lock()
 
     def index_source(self, source: str) -> int:
         identifier, documents = load_documents(source)
-        return self._index(identifier, documents)
+        return self._index(identifier, self._chunks(documents))
 
-    def index_upload(self, filename: str, stream: BinaryIO) -> int:
+    def index_upload(self, filename: str, stream: BinaryIO, *, allow_duplicate: bool = False) -> int:
         digest = file_digest(stream, "sha256").hexdigest()
         stream.seek(0)
-        documents = load_file(stream, Path(filename).suffix.lower())
-        return self._index(f"uploads/{digest}/{filename}", documents)
 
-    def _index(self, source: str, documents: list[Document]) -> int:
+        with self.upload_lock:
+            if not allow_duplicate and (match := self.store.find_upload(digest)) is not None:
+                raise DuplicateUpload(match)
+
+            documents = load_file(stream, Path(filename).suffix.lower())
+            chunks = self._chunks(documents)
+            if not allow_duplicate and (match := self.store.find_matching_chunks(chunks)) is not None:
+                raise DuplicateUpload(match)
+            return self._index(f"uploads/{digest}/{filename}", chunks)
+
+    def _chunks(self, documents: list[Document]) -> list[Chunk]:
         chunks = split_documents(documents, self.size, self.overlap)
         if not chunks:
             raise ValueError("No extractable text.")
+        return chunks
+
+    def _index(self, source: str, chunks: list[Chunk]) -> int:
         vectors = self.embedder.embed([chunk.text for chunk in chunks])
         self.store.replace(source, chunks, vectors)
         logging.info("Indexed %d chunks", len(chunks))

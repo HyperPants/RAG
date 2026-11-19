@@ -6,17 +6,18 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from openai import OpenAIError
 from pydantic import BaseModel, StringConstraints
 from pypdf.errors import PyPdfError
 
 from src.embeddings.errors import embedding_error_message
-from src.ingestion.indexer import Indexer
+from src.ingestion.indexer import DuplicateUpload, Indexer
 from src.llm.llm_client import LLMClient
 from src.prompts.prompt_templates import NO_SOURCES
 from src.retrieval.retriever import Retriever
+from src.vectordb.vector_store import IndexedDocument
 
 
 class Question(BaseModel):
@@ -40,6 +41,13 @@ class UploadResult(BaseModel):
     filename: str
     chunks: int | None = None
     error: str | None = None
+    duplicate_source: str | None = None
+
+
+def require_same_origin(request: Request) -> None:
+    origin = request.headers.get("origin")
+    if origin and origin != f"{request.url.scheme}://{request.url.netloc}":
+        raise HTTPException(status_code=403, detail="This action must come from this site.")
 
 
 def create_app(retriever: Retriever, llm: LLMClient, indexer: Indexer | None = None) -> FastAPI:
@@ -49,17 +57,30 @@ def create_app(retriever: Retriever, llm: LLMClient, indexer: Indexer | None = N
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
-        return FileResponse(web_dir / "index.html")
+        return FileResponse(web_dir / "index.html", headers={"Cache-Control": "no-cache"})
 
     @app.get("/health")
     def health():
         return {"status": "ok"}
 
+    @app.get("/documents")
+    def documents() -> list[IndexedDocument]:
+        return retriever.store.list_documents()
+
+    @app.delete("/documents", status_code=204)
+    def delete_document(request: Request, source: str) -> Response:
+        require_same_origin(request)
+        if not retriever.store.delete_document(source):
+            raise HTTPException(status_code=404, detail="This document is no longer indexed.")
+        return Response(status_code=204)
+
     @app.post("/ingest", response_model=list[UploadResult])
-    def ingest(request: Request, files: Annotated[list[UploadFile], File()]) -> list[UploadResult]:
-        origin = request.headers.get("origin")
-        if origin and origin != f"{request.url.scheme}://{request.url.netloc}":
-            raise HTTPException(status_code=403, detail="Uploads must come from this site.")
+    def ingest(
+        request: Request,
+        files: Annotated[list[UploadFile], File()],
+        allow_duplicate: bool = False,
+    ) -> list[UploadResult]:
+        require_same_origin(request)
         if indexer is None:
             raise HTTPException(status_code=503, detail="Document indexing is unavailable.")
 
@@ -67,8 +88,10 @@ def create_app(retriever: Retriever, llm: LLMClient, indexer: Indexer | None = N
         for upload in files:
             filename = PureWindowsPath(upload.filename or "").name or "Unnamed file"
             try:
-                count = indexer.index_upload(filename, upload.file)
+                count = indexer.index_upload(filename, upload.file, allow_duplicate=allow_duplicate)
                 results.append(UploadResult(filename=filename, chunks=count))
+            except DuplicateUpload as error:
+                results.append(UploadResult(filename=filename, duplicate_source=error.source))
             except OpenAIError as error:
                 results.append(UploadResult(filename=filename, error=embedding_error_message(error)))
             except UnicodeError:
