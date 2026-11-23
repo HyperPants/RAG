@@ -8,3 +8,5 @@ database:
   path: data/vectors.sqlite3
 retrieval:
   top_k: 5
+  mode: hybrid
+  candidate_k: 20

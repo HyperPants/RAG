@@ -1,5 +1,5 @@
 import csv
-from dataclasses import dataclass
+from zipfile import BadZipFile
 from io import TextIOWrapper
 from pathlib import Path
 from typing import BinaryIO
@@ -7,25 +7,28 @@ from urllib.parse import urlsplit
 
 from bs4 import BeautifulSoup
 import httpx
-from pypdf import PdfReader
+from openpyxl.utils.exceptions import InvalidFileException
 
-SUPPORTED_SUFFIXES = frozenset({".pdf", ".csv", ".txt", ".md"})
+from src.ingestion.document import Document
+from src.ingestion.excel import load_excel
+from src.ingestion.pdf import load_pdf
+from src.ingestion.powerpoint import load_powerpoint
+from src.ingestion.word import load_word
 
-
-@dataclass(frozen=True)
-class Document:
-    text: str
-    location: str
+OFFICE_LOADERS = {".docx": load_word, ".xlsx": load_excel, ".pptx": load_powerpoint}
+SUPPORTED_SUFFIXES = frozenset({".pdf", ".csv", ".txt", ".md", *OFFICE_LOADERS})
 
 
 def load_file(stream: BinaryIO, suffix: str) -> list[Document]:
     if suffix not in SUPPORTED_SUFFIXES:
-        raise ValueError("Supported formats are PDF, CSV, TXT, and Markdown.")
+        raise ValueError("Supported formats are PDF, DOCX, XLSX, PPTX, CSV, TXT, and Markdown.")
     if suffix == ".pdf":
-        return [
-            Document(page.extract_text() or "", f"page {index}")
-            for index, page in enumerate(PdfReader(stream).pages, 1)
-        ]
+        return load_pdf(stream)
+    if suffix in OFFICE_LOADERS:
+        try:
+            return OFFICE_LOADERS[suffix](stream)
+        except (BadZipFile, KeyError, InvalidFileException, SyntaxError, ValueError) as error:
+            raise ValueError(f"Could not read this {suffix.upper()[1:]} file. Check that it is valid and unencrypted.") from error
 
     text = TextIOWrapper(stream, encoding="utf-8-sig", newline="")
     try:

@@ -6,7 +6,8 @@ from typing import BinaryIO
 
 from src.chunking.chunker import Chunk, split_documents
 from src.embeddings.embedder import Embedder
-from src.ingestion.loader import Document, load_documents, load_file
+from src.ingestion.document import Document
+from src.ingestion.loader import load_documents, load_file
 from src.vectordb.vector_store import VectorStore
 
 
@@ -49,7 +50,10 @@ class Indexer:
         return chunks
 
     def _index(self, source: str, chunks: list[Chunk]) -> int:
-        vectors = self.embedder.embed([chunk.text for chunk in chunks])
+        vectors = self.embedder.embed([
+            f"{chunk.location}\n{chunk.text}" if chunk.embed_location else chunk.text
+            for chunk in chunks
+        ])
         self.store.replace(source, chunks, vectors)
         logging.info("Indexed %d chunks", len(chunks))
         return len(chunks)

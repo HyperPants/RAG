@@ -21,14 +21,17 @@ def test_chunk_overlap_and_location():
 def test_csv_retrieval_and_query(tmp_path):
     def embed(model, input, encoding_format):
         return SimpleNamespace(data=[
-            SimpleNamespace(index=index, embedding=[1.0, 0.0] if "pear" in text else [0.0, 1.0])
+            SimpleNamespace(index=index, embedding=[1.0, 0.0] if "pear" in text or "kruška" in text else [0.0, 1.0])
             for index, text in reversed(list(enumerate(input)))
         ])
 
     def respond(model, instructions, input, store):
         payload = json.loads(input)
-        assert payload["excerpts"] == [{"citation": "[1]", "text": "fruit: pear, color: green"}]
-        return SimpleNamespace(output_text="The pear is green [1].")
+        assert "Always answer in Serbian, using Latin script by default." in instructions
+        assert payload["excerpts"] == [
+            {"citation": "[1]", "source": "fruit.csv", "location": "record 2", "text": "fruit: pear, color: green"}
+        ]
+        return SimpleNamespace(output_text="Kruška je zelena [1].")
 
     provider = SimpleNamespace(
         embeddings=SimpleNamespace(create=embed),
@@ -49,9 +52,9 @@ def test_csv_retrieval_and_query(tmp_path):
         chunks = split_documents(documents, size=100, overlap=0)
         vector_store.replace(source, chunks, embedder.embed([chunk.text for chunk in chunks]))
 
-        result = client.post("/query", json={"question": "What color is the pear?"})
+        result = client.post("/query", json={"question": "Koje je boje kruška?"})
         assert result.status_code == 200
-        assert result.json()["answer"] == "The pear is green [1]."
+        assert result.json()["answer"] == "Kruška je zelena [1]."
         assert result.json()["sources"] == [
             {"citation": 1, "source": source, "location": "record 2",
              "text": "fruit: pear, color: green", "score": 1.0}
@@ -107,7 +110,7 @@ def test_multi_file_upload_indexes_successes_for_immediate_retrieval(tmp_path):
 
     class TestEmbedder:
         def embed(self, texts):
-            return [[1.0, 0.0] if "pear" in text else [0.0, 1.0] for text in texts]
+            return [[1.0, 0.0] if "pear" in text or "kruška" in text else [0.0, 1.0] for text in texts]
 
     embedder = TestEmbedder()
     store = VectorStore(tmp_path / "vectors.sqlite3", "test-model")

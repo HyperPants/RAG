@@ -226,3 +226,4 @@ __marimo__/
 # Local RAG data
 /data/
 /logs/
+/Documents/

@@ -1,12 +1,13 @@
 from dataclasses import dataclass
 
-from src.ingestion.loader import Document
+from src.ingestion.document import Document
 
 
 @dataclass(frozen=True)
 class Chunk:
     text: str
     location: str
+    embed_location: bool = False
 
 
 def split_documents(documents: list[Document], size: int, overlap: int) -> list[Chunk]:
@@ -21,7 +22,7 @@ def split_documents(documents: list[Document], size: int, overlap: int) -> list[
             end = min(start + size, len(text))
             excerpt = text[start:end].strip()
             if excerpt:
-                chunks.append(Chunk(excerpt, document.location))
+                chunks.append(Chunk(excerpt, document.location, document.embed_location))
             if end == len(text):
                 break
             start = end - overlap

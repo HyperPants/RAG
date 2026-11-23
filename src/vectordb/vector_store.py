@@ -8,6 +8,7 @@ from pathlib import Path
 import sqlite3
 
 from src.chunking.chunker import Chunk
+from src.vectordb.keywords import keyword_query, keyword_row
 
 
 @dataclass(frozen=True)
@@ -16,6 +17,7 @@ class SearchHit:
     location: str
     text: str
     score: float
+    ordinal: int = 0
 
 
 @dataclass(frozen=True)
@@ -36,7 +38,8 @@ class VectorStore:
         self.path = path
         self.model = model
         path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(sqlite3.connect(path)) as connection:
+        with closing(sqlite3.connect(path)) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
             connection.execute("""
                 CREATE TABLE IF NOT EXISTS chunks (
                     model TEXT, source TEXT, ordinal INTEGER, location TEXT,
@@ -44,14 +47,41 @@ class VectorStore:
                 )
             """)
 
+            if connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'chunk_keywords'",
+            ).fetchone() is None:
+                connection.execute("CREATE VIRTUAL TABLE chunk_keywords USING fts5(body, context, identifiers, model UNINDEXED, source UNINDEXED, ordinal UNINDEXED)")
+                self._index_keywords(connection, "SELECT model, source, ordinal, location, content FROM chunks")
+
+    @staticmethod
+    def _index_keywords(connection: sqlite3.Connection, query: str, params: tuple = ()) -> None:
+        rows = connection.execute(query, params)
+        connection.executemany(
+            "INSERT INTO chunk_keywords(body, context, identifiers, model, source, ordinal) VALUES (?, ?, ?, ?, ?, ?)",
+            (keyword_row(*row) for row in rows),
+        )
+
+    def _delete_source(self, connection: sqlite3.Connection, source: str) -> bool:
+        params = (self.model, source)
+        connection.execute(
+            "DELETE FROM chunk_keywords WHERE model = ? AND source = ?",
+            params,
+        )
+        return connection.execute("DELETE FROM chunks WHERE model = ? AND source = ?", params).rowcount > 0
+
     def replace(self, source: str, chunks: list[Chunk], vectors: list[list[float]]) -> None:
         rows = [
             (self.model, source, index, chunk.location, chunk.text, json.dumps(normalize(vector)))
             for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True))
         ]
         with closing(sqlite3.connect(self.path)) as connection, connection:
-            connection.execute("DELETE FROM chunks WHERE model = ? AND source = ?", (self.model, source))
+            self._delete_source(connection, source)
             connection.executemany("INSERT INTO chunks VALUES (?, ?, ?, ?, ?, ?)", rows)
+            self._index_keywords(
+                connection,
+                "SELECT model, source, ordinal, location, content FROM chunks WHERE model = ? AND source = ?",
+                (self.model, source),
+            )
 
     def find_upload(self, digest: str) -> str | None:
         with closing(sqlite3.connect(self.path)) as connection:
@@ -80,10 +110,7 @@ class VectorStore:
 
     def delete_document(self, source: str) -> bool:
         with closing(sqlite3.connect(self.path)) as connection, connection:
-            result = connection.execute(
-                "DELETE FROM chunks WHERE model = ? AND source = ?", (self.model, source),
-            )
-            return result.rowcount > 0
+            return self._delete_source(connection, source)
 
     def list_documents(self) -> list[IndexedDocument]:
         with closing(sqlite3.connect(self.path)) as connection:
@@ -106,10 +133,35 @@ class VectorStore:
         query = normalize(vector)
         with closing(sqlite3.connect(self.path)) as connection:
             rows = connection.execute(
-                "SELECT source, location, content, vector FROM chunks WHERE model = ?", (self.model,),
+                "SELECT source, location, content, vector, ordinal FROM chunks WHERE model = ? ORDER BY source, ordinal", (self.model,),
             )
             hits = (
-                SearchHit(source, location, content, sumprod(query, json.loads(stored)))
-                for source, location, content, stored in rows
+                SearchHit(source, location, content, sumprod(query, json.loads(stored)), ordinal)
+                for source, location, content, stored, ordinal in rows
             )
             return heapq.nlargest(limit, hits, key=lambda hit: hit.score)
+
+
+    def search_keywords(self, question: str, vector: list[float], limit: int) -> list[tuple[SearchHit, bool]]:
+        expression, references = keyword_query(question)
+        if not expression:
+            return []
+
+        query = normalize(vector)
+        # Each reference comes from the tokenizer, and its SQL value is bound separately.
+        exact_match = " OR ".join("instr(' ' || identifiers || ' ', ?) > 0" for _ in references) or "0"
+        with closing(sqlite3.connect(self.path)) as connection:
+            rows = connection.execute(f"""
+                SELECT c.source, c.location, c.content, c.vector, c.ordinal,
+                       CASE WHEN {exact_match} THEN 1 ELSE 0 END AS exact
+                FROM chunk_keywords
+                JOIN chunks AS c ON c.model = chunk_keywords.model
+                    AND c.source = chunk_keywords.source AND c.ordinal = chunk_keywords.ordinal
+                WHERE chunk_keywords MATCH ? AND c.model = ?
+                ORDER BY exact DESC, bm25(chunk_keywords, 1.0, 1.5, 2.0), c.source, c.ordinal
+                LIMIT ?
+            """, (*(f" {token} " for token in references), expression, self.model, limit))
+            return [
+                (SearchHit(source, location, content, sumprod(query, json.loads(stored)), ordinal), bool(exact))
+                for source, location, content, stored, ordinal, exact in rows
+            ]

@@ -37,7 +37,7 @@ def main() -> None:
         store = VectorStore(ROOT / config["database"]["path"], embedder.model)
         indexer = Indexer(embedder, store, **config["chunking"])
         if args.command == "serve":
-            retriever = Retriever(embedder, store, config["retrieval"]["top_k"])
+            retriever = Retriever(embedder, store, **config["retrieval"])
             uvicorn.run(create_app(retriever, LLMClient(client, models["answer"]), indexer),
                         host="127.0.0.1", port=args.port)
             return
