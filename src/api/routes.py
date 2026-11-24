@@ -1,9 +1,12 @@
+from contextlib import contextmanager
 import csv
 import logging
 from pathlib import PureWindowsPath
 import sqlite3
 from pathlib import Path
+from threading import Lock
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
@@ -13,7 +16,9 @@ from pydantic import BaseModel, StringConstraints
 from pypdf.errors import PyPdfError
 
 from src.embeddings.errors import embedding_error_message
+from src.ingestion.folder_sync import FolderSync, SyncBusy, SyncReport
 from src.ingestion.indexer import DuplicateUpload, Indexer
+from src.ingestion.progress import IndexProgress, ProgressSnapshot
 from src.llm.llm_client import LLMClient
 from src.prompts.prompt_templates import NO_SOURCES
 from src.retrieval.retriever import Retriever
@@ -50,10 +55,39 @@ def require_same_origin(request: Request) -> None:
         raise HTTPException(status_code=403, detail="This action must come from this site.")
 
 
-def create_app(retriever: Retriever, llm: LLMClient, indexer: Indexer | None = None) -> FastAPI:
+def create_app(
+    retriever: Retriever, llm: LLMClient, indexer: Indexer | None = None, *,
+    folder_sync: FolderSync | None = None,
+) -> FastAPI:
     app = FastAPI(title="RAG")
     web_dir = Path(__file__).with_name("web")
     app.mount("/assets", StaticFiles(directory=web_dir), name="assets")
+
+    active_progress: dict[UUID, IndexProgress] = {}
+    progress_lock = Lock()
+
+    @contextmanager
+    def track_progress(progress_id: UUID | None):
+        if progress_id is None:
+            yield None
+            return
+
+        progress = IndexProgress()
+        with progress_lock:
+            if progress_id in active_progress:
+                raise HTTPException(status_code=409, detail="This indexing request is already running.")
+            active_progress[progress_id] = progress
+        try:
+            yield progress
+        finally:
+            with progress_lock:
+                del active_progress[progress_id]
+
+    @app.get("/indexing-progress/{progress_id}")
+    def indexing_progress(progress_id: UUID) -> ProgressSnapshot | None:
+        with progress_lock:
+            progress = active_progress.get(progress_id)
+            return progress.snapshot if progress is not None else None
 
     @app.get("/", include_in_schema=False)
     def index() -> FileResponse:
@@ -62,6 +96,21 @@ def create_app(retriever: Retriever, llm: LLMClient, indexer: Indexer | None = N
     @app.get("/health")
     def health():
         return {"status": "ok"}
+
+    @app.get("/sync")
+    def sync_configuration() -> dict[str, bool]:
+        return {"configured": folder_sync is not None}
+
+    @app.post("/sync")
+    def synchronize(request: Request, remove_missing: bool = False, progress_id: UUID | None = None) -> SyncReport:
+        require_same_origin(request)
+        if folder_sync is None:
+            raise HTTPException(status_code=503, detail="Set MARGINALIA_DOCUMENT_FOLDER in .env and restart Marginalia.")
+        try:
+            with track_progress(progress_id) as progress:
+                return folder_sync.run(remove_missing=remove_missing, progress=progress)
+        except SyncBusy as error:
+            raise HTTPException(status_code=409, detail=str(error)) from error
 
     @app.get("/documents")
     def documents() -> list[IndexedDocument]:
@@ -79,31 +128,35 @@ def create_app(retriever: Retriever, llm: LLMClient, indexer: Indexer | None = N
         request: Request,
         files: Annotated[list[UploadFile], File()],
         allow_duplicate: bool = False,
+        progress_id: UUID | None = None,
     ) -> list[UploadResult]:
         require_same_origin(request)
         if indexer is None:
             raise HTTPException(status_code=503, detail="Document indexing is unavailable.")
 
-        results = []
-        for upload in files:
-            filename = PureWindowsPath(upload.filename or "").name or "Unnamed file"
-            try:
-                count = indexer.index_upload(filename, upload.file, allow_duplicate=allow_duplicate)
-                results.append(UploadResult(filename=filename, chunks=count))
-            except DuplicateUpload as error:
-                results.append(UploadResult(filename=filename, duplicate_source=error.source))
-            except OpenAIError as error:
-                results.append(UploadResult(filename=filename, error=embedding_error_message(error)))
-            except UnicodeError:
-                results.append(UploadResult(filename=filename, error="Save the file as UTF-8 and try again."))
-            except (PyPdfError, csv.Error):
-                results.append(UploadResult(filename=filename, error="The document could not be read."))
-            except ValueError as error:
-                results.append(UploadResult(filename=filename, error=str(error)))
-            except (OSError, sqlite3.Error):
-                logging.exception("Failed to index uploaded document")
-                results.append(UploadResult(filename=filename, error="The server could not index this file."))
-        return results
+        with track_progress(progress_id) as progress:
+            results = []
+            for completed, upload in enumerate(files):
+                filename = PureWindowsPath(upload.filename or "").name or "Unnamed file"
+                if progress is not None:
+                    progress.file(len(files), completed, filename)
+                try:
+                    count = indexer.index_upload(filename, upload.file, allow_duplicate=allow_duplicate, progress=progress)
+                    results.append(UploadResult(filename=filename, chunks=count))
+                except DuplicateUpload as error:
+                    results.append(UploadResult(filename=filename, duplicate_source=error.source))
+                except OpenAIError as error:
+                    results.append(UploadResult(filename=filename, error=embedding_error_message(error)))
+                except UnicodeError:
+                    results.append(UploadResult(filename=filename, error="Save the file as UTF-8 and try again."))
+                except (PyPdfError, csv.Error):
+                    results.append(UploadResult(filename=filename, error="The document could not be read."))
+                except ValueError as error:
+                    results.append(UploadResult(filename=filename, error=str(error)))
+                except (OSError, sqlite3.Error):
+                    logging.exception("Failed to index uploaded document")
+                    results.append(UploadResult(filename=filename, error="The server could not index this file."))
+            return results
 
     @app.post("/query", response_model=Answer)
     def query(payload: Question) -> Answer:

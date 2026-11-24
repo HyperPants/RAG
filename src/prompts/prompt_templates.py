@@ -1,5 +1,6 @@
 import json
 from pathlib import PureWindowsPath
+import re
 
 from src.vectordb.vector_store import SearchHit
 
@@ -22,14 +23,21 @@ Instructions:
 NO_SOURCES = "Nema indeksiranih dokumenata za izabrani model za pretragu."
 
 
+def source_label(source: str) -> str:
+    if match := re.fullmatch(r"onedrive/[a-f0-9]{64}/(.+)", source):
+        return match[1]
+    if source.lower().startswith(("http://", "https://")):
+        return source
+    return PureWindowsPath(source).name
+
+
 def render_question(question: str, hits: list[SearchHit]) -> str:
     return json.dumps({
         "question": question,
         "excerpts": [
             {
                 "citation": f"[{index}]",
-                "source": hit.source if hit.source.lower().startswith(("http://", "https://"))
-                else PureWindowsPath(hit.source).name,
+                "source": source_label(hit.source),
                 "location": hit.location,
                 "text": hit.text,
             }

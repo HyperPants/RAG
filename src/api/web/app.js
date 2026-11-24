@@ -75,7 +75,13 @@ function renderAnswer(text, hits) {
   }
 }
 
+function syncedRelativePath(source) {
+  return /^onedrive\/[a-f0-9]{64}\/(.+)$/.exec(source)?.[1];
+}
+
 function sourceName(path) {
+  const synced = syncedRelativePath(path);
+  if (synced) return synced;
   if (/^https?:\/\//i.test(path)) {
     const url = new URL(path);
     return url.hostname + (url.pathname === "/" ? "" : url.pathname);
@@ -92,7 +98,7 @@ function renderSources(hits) {
     const title = document.createElement("span");
     title.className = "source-name";
     title.textContent = "[" + hit.citation + "] " + sourceName(hit.source);
-    title.title = hit.source;
+    title.title = syncedRelativePath(hit.source) || hit.source;
     const location = document.createElement("span");
     location.className = "source-location";
     location.textContent = hit.location;
@@ -183,11 +189,66 @@ dropZone.addEventListener("drop", (event) => {
   indexFiles(Array.from(event.dataTransfer.files));
 });
 
+async function requestWithProgress(url, options, bar, label, initialMessage) {
+  const id = crypto.randomUUID();
+  const separator = url.includes("?") ? "&" : "?";
+  const controller = new AbortController();
+  let timer;
+  bar.hidden = false;
+  bar.removeAttribute("value");
+  label.hidden = false;
+  label.textContent = initialMessage;
+
+  async function poll() {
+    try {
+      const response = await fetch("/indexing-progress/" + id, {
+        cache: "no-store", signal: controller.signal,
+      });
+      const snapshot = response.ok ? await response.json() : null;
+      if (!snapshot || controller.signal.aborted) return;
+      const { stage, total, completed, filename, excerpts_done, excerpts_total } = snapshot;
+      const phases = { reading: "Reading", embedding: "Embedding", saving: "Saving" };
+      if (total && filename) {
+        bar.max = total;
+        if (total === 1 && !excerpts_total) {
+          bar.removeAttribute("value");
+        } else {
+          bar.value = completed + (excerpts_total ? excerpts_done / excerpts_total : 0);
+        }
+        const excerptCount = stage === "embedding" ? " · " + excerpts_done + " of " + excerpts_total + " excerpts" : "";
+        const message = "File " + (completed + 1) + " of " + total + " · "
+          + phases[stage] + " " + filename + excerptCount;
+        if (label.textContent !== message) label.textContent = message;
+      } else {
+        bar.removeAttribute("value");
+        label.textContent = stage === "removing" ? "Checking and removing missing entries…" : "Scanning the folder…";
+      }
+    } catch {
+      // The indexing response remains authoritative if a progress poll fails.
+    } finally {
+      if (!controller.signal.aborted) timer = setTimeout(poll, 500);
+    }
+  }
+
+  timer = setTimeout(poll, 250);
+  try {
+    return await fetch(url + separator + "progress_id=" + id, options);
+  } finally {
+    controller.abort();
+    clearTimeout(timer);
+    bar.hidden = true;
+    label.hidden = true;
+  }
+}
+
 async function sendUploads(files, allowDuplicate = false) {
   const body = new FormData();
   for (const file of files) body.append("files", file);
   const url = allowDuplicate ? "/ingest?allow_duplicate=true" : "/ingest";
-  const response = await fetch(url, { method: "POST", body });
+  const response = await requestWithProgress(
+    url, { method: "POST", body }, document.querySelector("#upload-progress"),
+    document.querySelector("#upload-progress-label"), "Sending files to Marginalia…",
+  );
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(typeof payload.detail === "string" ? payload.detail : "Upload failed. Please try again.");
@@ -277,6 +338,12 @@ const libraryStatus = document.querySelector("#library-status");
 const libraryDocuments = document.querySelector("#library-documents");
 const libraryRefresh = document.querySelector("#library-refresh");
 const libraryAction = document.querySelector("#library-action");
+const librarySearch = document.querySelector("#library-search");
+const libraryMatches = document.querySelector("#library-matches");
+const libraryMore = document.querySelector("#library-more");
+const libraryPageSize = 5;
+let libraryLimit = libraryPageSize;
+let libraryRows = [];
 let libraryRequest;
 let deletingDocument = false;
 
@@ -310,6 +377,25 @@ async function deleteIndexedDocument(source, button) {
   }
 }
 
+function librarySearchText(value) {
+  return value.toLocaleLowerCase("sr").replaceAll("đ", "dj").normalize("NFD").replace(/\p{M}/gu, "");
+}
+
+function filterLibrary() {
+  const query = librarySearchText(librarySearch.value.trim());
+  const visible = query
+    ? libraryRows.filter(({ searchable }) => searchable.includes(query))
+    : libraryRows.slice(0, libraryLimit);
+  libraryDocuments.replaceChildren(...visible.map(({ row }) => row));
+  libraryDocuments.hidden = visible.length === 0;
+  libraryMatches.hidden = !query;
+  libraryMatches.textContent = visible.length
+    ? "Showing " + visible.length + " of " + libraryRows.length + " documents."
+    : "No indexed documents match your search.";
+  libraryMore.hidden = Boolean(query) || libraryRows.length <= libraryPageSize;
+  libraryMore.textContent = libraryLimit < libraryRows.length ? "Show more" : "Show less";
+}
+
 async function refreshLibrary() {
   libraryRequest?.abort();
   const request = new AbortController();
@@ -322,7 +408,7 @@ async function refreshLibrary() {
     const documents = await response.json();
     if (libraryRequest !== request) return;
 
-    const rows = documents.map(({ source, chunks }) => {
+    libraryRows = documents.map(({ source, chunks }) => {
       const row = document.createElement("li");
       const label = document.createElement("div");
       const name = document.createElement("strong");
@@ -330,7 +416,7 @@ async function refreshLibrary() {
       const origin = document.createElement("span");
       origin.className = "library-origin";
       const upload = /^uploads\/([a-f0-9]{64})\//.exec(source);
-      origin.textContent = upload ? "Browser upload · " + upload[1].slice(0, 8) : source;
+      origin.textContent = upload ? "Browser upload · " + upload[1].slice(0, 8) : (syncedRelativePath(source) ? "Local folder" : source);
       const excerpts = document.createElement("span");
       excerpts.className = "library-excerpts";
       excerpts.textContent = chunks + (chunks === 1 ? " excerpt" : " excerpts");
@@ -345,17 +431,21 @@ async function refreshLibrary() {
       actions.append(excerpts, remove);
       label.append(name, origin);
       row.append(label, actions);
-      return row;
+      const searchPath = syncedRelativePath(source) || (upload ? name.textContent : source);
+      return { row, searchable: librarySearchText(searchPath) };
     });
-    libraryDocuments.replaceChildren(...rows);
-    libraryDocuments.hidden = !rows.length;
-    libraryCount.textContent = String(rows.length);
+    librarySearch.disabled = false;
+    filterLibrary();
+    libraryCount.textContent = String(libraryRows.length);
     libraryCount.hidden = false;
-    libraryStatus.textContent = rows.length
+    libraryStatus.textContent = libraryRows.length
       ? "Available to query with the current embedding model."
       : "No documents indexed for the current embedding model.";
   } catch {
     if (libraryRequest !== request) return;
+    librarySearch.disabled = true;
+    libraryMatches.hidden = true;
+    libraryMore.hidden = true;
     libraryCount.hidden = true;
     libraryDocuments.hidden = true;
     libraryStatus.textContent = "Could not load indexed documents. Try refreshing the list.";
@@ -365,4 +455,77 @@ async function refreshLibrary() {
 }
 
 libraryRefresh.addEventListener("click", refreshLibrary);
+librarySearch.addEventListener("input", filterLibrary);
+libraryMore.addEventListener("click", () => {
+  libraryLimit = libraryLimit < libraryRows.length ? libraryLimit + libraryPageSize : libraryPageSize;
+  filterLibrary();
+});
 refreshLibrary();
+
+const syncRun = document.querySelector("#sync-run");
+const syncRemove = document.querySelector("#sync-remove");
+const syncStatus = document.querySelector("#sync-status");
+const syncDetails = document.querySelector("#sync-details");
+
+async function loadSyncConfiguration() {
+  try {
+    const response = await fetch("/sync", { cache: "no-store" });
+    if (!response.ok) throw new Error("Could not check folder configuration.");
+    const { configured } = await response.json();
+    syncRun.disabled = !configured;
+    syncStatus.textContent = configured
+      ? "Index changes from your local OneDrive folder and its subfolders."
+      : "Set MARGINALIA_DOCUMENT_FOLDER in .env and restart Marginalia.";
+  } catch {
+    syncStatus.textContent = "Could not check folder configuration. Reload the page to try again.";
+  }
+}
+
+async function syncFolder(removeMissing = false) {
+  syncRun.disabled = true;
+  syncRemove.hidden = true;
+  syncStatus.textContent = "Scanning and indexing the folder…";
+  syncDetails.replaceChildren();
+  syncDetails.hidden = true;
+  try {
+    const response = await requestWithProgress(
+      removeMissing ? "/sync?remove_missing=true" : "/sync", { method: "POST" },
+      document.querySelector("#sync-progress"), document.querySelector("#sync-progress-label"), "Scanning the folder…",
+    );
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(typeof payload.detail === "string" ? payload.detail : "Folder sync failed.");
+    }
+    const report = await response.json();
+    const issues = Object.entries(report.errors);
+    syncStatus.textContent = [
+      report.added + " added", report.modified + " updated", report.unchanged + " unchanged",
+      report.deleted + " removed", report.missing.length + " missing",
+      ...(issues.length ? [issues.length + " issues. Unverified entries were kept."] : []),
+    ].join(" · ");
+    for (const [path, reason] of issues) {
+      const row = document.createElement("li");
+      row.textContent = path === "." ? reason : path + " — " + reason;
+      syncDetails.append(row);
+    }
+    for (const path of report.missing) {
+      const row = document.createElement("li");
+      row.textContent = path + " — missing locally";
+      syncDetails.append(row);
+    }
+    syncDetails.hidden = !syncDetails.childElementCount;
+    syncRemove.hidden = issues.length > 0 || report.missing.length === 0;
+  } catch (failure) {
+    syncStatus.textContent = failure.message || "Folder sync failed. Try again.";
+  } finally {
+    syncRun.disabled = false;
+    refreshLibrary();
+  }
+}
+
+syncRun.addEventListener("click", () => syncFolder());
+syncRemove.addEventListener("click", async () => {
+  const dialog = document.querySelector("#sync-dialog");
+  if (await confirmAction(dialog, "remove")) await syncFolder(true);
+});
+loadSyncConfiguration();

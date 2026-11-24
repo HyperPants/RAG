@@ -4,8 +4,8 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Marginalia · Document Q&A</title>
-  <link rel="stylesheet" href="/assets/app.css?v=5">
-  <script defer src="/assets/app.js?v=5"></script>
+  <link rel="stylesheet" href="/assets/app.css?v=8">
+  <script defer src="/assets/app.js?v=8"></script>
 </head>
 <body>
   <header class="topbar">
@@ -45,6 +45,10 @@
         </button>
       </div>
       <p id="upload-status" role="status" hidden></p>
+      <div class="index-progress">
+        <progress id="upload-progress" aria-label="Upload indexing progress" aria-describedby="upload-progress-label" hidden></progress>
+        <p id="upload-progress-label" hidden></p>
+      </div>
       <ul id="upload-results" class="upload-results" hidden></ul>
     </section>
     <dialog class="action-dialog" id="duplicate-dialog" aria-labelledby="duplicate-title" aria-describedby="duplicate-help">
@@ -64,6 +68,29 @@
         <button value="delete" class="danger-button">Delete from index</button>
       </form>
     </dialog>
+    <section class="panel sync-panel" aria-labelledby="sync-title">
+      <div>
+        <h2 id="sync-title">Local folder sync</h2>
+        <p id="sync-status" role="status">Checking folder configuration…</p>
+      </div>
+      <div class="sync-actions">
+        <button id="sync-run" type="button" disabled>Sync folder</button>
+        <button id="sync-remove" type="button" hidden>Remove missing</button>
+      </div>
+      <div class="index-progress">
+        <progress id="sync-progress" aria-label="Folder indexing progress" aria-describedby="sync-progress-label" hidden></progress>
+        <p id="sync-progress-label" hidden></p>
+      </div>
+      <ul id="sync-details" hidden></ul>
+    </section>
+    <dialog class="action-dialog" id="sync-dialog" aria-labelledby="sync-dialog-title">
+      <h2 id="sync-dialog-title">Remove missing documents?</h2>
+      <p>Marginalia will rescan the folder and remove still-missing documents from its index.</p>
+      <form method="dialog" class="dialog-actions">
+        <button value="cancel" autofocus>Cancel</button>
+        <button value="remove" class="danger-button">Remove from index</button>
+      </form>
+    </dialog>
     <details class="panel library-panel">
       <summary>Indexed documents <span id="library-count" class="count" hidden></span></summary>
       <div class="library-body">
@@ -71,8 +98,12 @@
           <p id="library-status" role="status">The document list will load when the page script starts.</p>
           <button id="library-refresh" type="button">Refresh</button>
         </div>
+        <label class="library-search-label" for="library-search">Search indexed documents</label>
+        <input id="library-search" type="search" placeholder="Filename or folder path" autocomplete="off" disabled>
+        <p id="library-matches" role="status" hidden></p>
         <p id="library-action" role="status"></p>
         <ul id="library-documents" class="library-documents" hidden></ul>
+        <button id="library-more" type="button" aria-controls="library-documents" hidden>Show more</button>
       </div>
     </details>
     <div class="results">

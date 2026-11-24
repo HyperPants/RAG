@@ -33,6 +33,10 @@ def normalize(vector: list[float]) -> list[float]:
     return [value / length for value in vector]
 
 
+class SyncConflict(ValueError):
+    pass
+
+
 class VectorStore:
     def __init__(self, path: Path, model: str):
         self.path = path
@@ -44,6 +48,13 @@ class VectorStore:
                 CREATE TABLE IF NOT EXISTS chunks (
                     model TEXT, source TEXT, ordinal INTEGER, location TEXT,
                     content TEXT, vector TEXT, PRIMARY KEY (model, source, ordinal)
+                )
+            """)
+
+            connection.execute("""
+                CREATE TABLE IF NOT EXISTS synced_documents (
+                    model TEXT NOT NULL, source TEXT NOT NULL, digest TEXT NOT NULL,
+                    PRIMARY KEY (model, source)
                 )
             """)
 
@@ -69,12 +80,38 @@ class VectorStore:
         )
         return connection.execute("DELETE FROM chunks WHERE model = ? AND source = ?", params).rowcount > 0
 
-    def replace(self, source: str, chunks: list[Chunk], vectors: list[list[float]]) -> None:
+    def synced_documents(self, prefix: str) -> dict[str, str]:
+        with closing(sqlite3.connect(self.path)) as connection:
+            rows = connection.execute(
+                "SELECT source, digest FROM synced_documents WHERE model = ? AND source GLOB ?",
+                (self.model, prefix + "*"),
+            )
+            return dict(rows)
+
+    def _sync_digest(self, connection: sqlite3.Connection, source: str) -> str | None:
+        row = connection.execute(
+            "SELECT digest FROM synced_documents WHERE model = ? AND source = ?",
+            (self.model, source),
+        ).fetchone()
+        return row[0] if row else None
+
+    def replace(
+        self, source: str, chunks: list[Chunk], vectors: list[list[float]], *,
+        sync_digest: str | None = None, previous_digest: str | None = None,
+    ) -> None:
         rows = [
             (self.model, source, index, chunk.location, chunk.text, json.dumps(normalize(vector)))
             for index, (chunk, vector) in enumerate(zip(chunks, vectors, strict=True))
         ]
         with closing(sqlite3.connect(self.path)) as connection, connection:
+            if sync_digest is not None:
+                connection.execute("BEGIN IMMEDIATE")
+                if self._sync_digest(connection, source) != previous_digest:
+                    raise SyncConflict("The index changed during synchronization. Try again.")
+                connection.execute(
+                    "INSERT OR REPLACE INTO synced_documents VALUES (?, ?, ?)",
+                    (self.model, source, sync_digest),
+                )
             self._delete_source(connection, source)
             connection.executemany("INSERT INTO chunks VALUES (?, ?, ?, ?, ?, ?)", rows)
             self._index_keywords(
@@ -108,8 +145,14 @@ class VectorStore:
                     return source
         return None
 
-    def delete_document(self, source: str) -> bool:
+    def delete_document(self, source: str, *, expected_digest: str | None = None) -> bool:
         with closing(sqlite3.connect(self.path)) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if expected_digest is not None and self._sync_digest(connection, source) != expected_digest:
+                return False
+            connection.execute(
+                "DELETE FROM synced_documents WHERE model = ? AND source = ?", (self.model, source),
+            )
             return self._delete_source(connection, source)
 
     def list_documents(self) -> list[IndexedDocument]:

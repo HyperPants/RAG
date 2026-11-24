@@ -23,10 +23,10 @@ Start the server:
 
 1. Open [Marginalia](http://127.0.0.1:8000/).
 2. In **Add documents**, click **Choose files** or drag files onto the drop zone. You can add multiple PDFs, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), UTF-8 CSV, plain text, or Markdown files in one batch. Scanned PDFs require the OCR setup below.
-3. Wait for the per-file indexing results. Successful files are ready to query immediately, even if some files in the batch fail.
+3. Watch the progress bar for the current file, indexing stage, and embedding progress. The upload summary reports the result for each file. Successful files are ready to query immediately, even if some files in the batch fail.
 4. Ask a question, such as “Koji je rok plaćanja za ugovor UG-42/2025?” Select a numbered citation in the answer to open the retrieved excerpt and see its source location.
 
-Open **Indexed documents** to see the saved sources and excerpt counts. The list updates after uploads. Use **Refresh** after indexing files or URLs from another terminal. To remove an outdated source, choose **Delete** next to it and confirm. This removes its excerpts and embeddings for the active model from the index. The original file stays on disk. The extracted excerpts and vectors persist in SQLite across restarts. Marginalia checks for matching files and identical indexed excerpts before embedding an upload. If it finds a match, you can skip the file or choose **Upload anyway**. Confirming an identical upload with the same name refreshes its existing entry. A matching file with a different name gets a separate entry.
+Open **Indexed documents** to see the first five sources and their excerpt counts. **Show more** reveals five more at a time, and **Show less** returns to the first five. Search by filename or folder path to see every match across the full index. The list updates after uploads and folder sync. Use **Refresh** after indexing files or URLs from another terminal. To remove an outdated source, choose **Delete** next to it and confirm. This removes its excerpts and embeddings for the active model from the index. The original file stays on disk. The extracted excerpts and vectors persist in SQLite across restarts. Marginalia checks for matching files and identical indexed excerpts before embedding an upload. If it finds a match, you can skip the file or choose **Upload anyway**. Confirming an identical upload with the same name refreshes its existing entry. A matching file with a different name gets a separate entry.
 
 ## Document extraction
 
@@ -55,6 +55,33 @@ Verify the installed language packs in PowerShell:
 
 The list should include `eng` (English), `srp_latn` (Serbian Latin), and `srp` (Serbian Cyrillic). The app runs OCR locally and keeps the original PDF page number on each excerpt.
 
+## Sync a local OneDrive folder
+
+Folder sync uses the files available in Windows File Explorer. It searches subfolders and uses the same parsers, citations, and OpenAI models as browser uploads. It runs manually and uses the local filesystem without Microsoft Graph.
+
+1. In your OneDrive, create a small test folder with non-sensitive sample files. Right-click the folder in File Explorer, choose **Always keep on this device**, and wait for OneDrive to finish downloading it. [OneDrive Files On-Demand states](https://learn.microsoft.com/en-us/onedrive/files-on-demand-windows)
+2. Add the folder path to your local `.env`. Use the path from your own laptop.
+
+   ```dotenv
+   MARGINALIA_DOCUMENT_FOLDER="C:/Users/YourName/OneDrive/Marginalia-Test"
+   ```
+
+3. Restart Marginalia and select **Sync folder** under **Local folder sync**. The progress bar shows what is being processed, and the summary gives the counts for added, updated, unchanged, missing, and removed files. Ask a question about a known fact, such as “Koji je rok plaćanja za ugovor UG-42?” Open the citation to check the relative filename and its page, section, worksheet row, or slide.
+4. Select **Sync folder** again. The same files should be reported as unchanged, with no new embedding calls. Add or edit a sample file, wait for OneDrive to finish, and sync again to see it marked as added or updated.
+5. Move a sample file out of the folder and sync again. Marginalia reports it as missing and keeps its indexed copy until you select **Remove missing** and confirm. That action rescans before removing entries from SQLite.
+
+Run the same workflow from PowerShell, including when the browser server is stopped:
+
+```powershell
+.\.venv\Scripts\python.exe main.py sync
+.\.venv\Scripts\python.exe main.py sync --remove-missing
+```
+
+A sync with unreadable files, online-only placeholders, or inaccessible subfolders keeps the previously indexed copies and skips removal. After OneDrive finishes downloading or a file is repaired, sync again. Marginalia skips temporary Office owner files, symbolic links, and directory junctions. The app never deletes files from OneDrive.
+
+The sync stores a SHA-256 digest for each managed source in SQLite. It reads locally available files to check their digests and embeds only new or changed files. The digest, excerpts, vectors, and keyword index are updated together after a successful import. Synced documents are scoped to their configured folder and embedding model. Browser uploads and standalone CLI imports remain separate. Switching folders preserves entries from earlier folders. Use a fresh database for a separate company collection or remove old entries through **Indexed documents**.
+
+
 ## CLI and API
 
 The CLI also accepts HTTP(S) pages. To index multiple files or URLs, pass each as a separate argument.
@@ -69,6 +96,8 @@ Use [Swagger UI](http://127.0.0.1:8000/docs) to try the API while the server is 
 | --- | --- |
 | `POST /ingest` | Upload a multipart request with one or more `files` fields. Returns a result for each file, including any duplicate match. Use `allow_duplicate=true` to explicitly index matching files. |
 | `POST /query` | Send JSON such as `{"question": "What were the main findings?"}`. Returns an answer and retrieved excerpts with citations, locations, and cosine scores. Hybrid rank controls the order, and the score field still reports cosine similarity. |
+| `GET /sync` | Check whether a local sync folder is configured. |
+| `POST /sync` | Scan and index folder changes. Add `?remove_missing=true` to remove missing entries after a clean scan. |
 | `GET /documents` | List indexed sources and their excerpt counts for the active embedding model. |
 | `DELETE /documents?source=...` | Remove a source from the active model’s index. Use the exact source identifier from the list. |
 | `GET /health` | Check whether the server is responding. |
@@ -76,11 +105,11 @@ Use [Swagger UI](http://127.0.0.1:8000/docs) to try the API while the server is 
 ## Architecture
 
 ```text
-Upload or CLI source -> loader -> overlapping chunks -> OpenAI embeddings -> SQLite
+Upload, CLI source, or local folder -> loader -> overlapping chunks -> OpenAI embeddings -> SQLite
 Question -> SQLite keyword search + embedding similarity -> merged ranking -> Serbian answer
 ```
 
-- `main.py` wires together the CLI and FastAPI server. Both ingestion paths share the indexer and loader in `src/ingestion`, with separate parsers in `pdf.py`, `word.py`, `excel.py`, and `powerpoint.py`.
+- `main.py` wires together the CLI and FastAPI server. Uploads, CLI imports, and folder sync share the indexer and loader in `src/ingestion`, with separate parsers in `pdf.py`, `word.py`, `excel.py`, and `powerpoint.py`.
 - `src/api` provides the upload and query endpoints. `src/api/web` contains the HTML, CSS, and JavaScript for Marginalia.
 - `src/chunking` normalizes whitespace and creates overlapping character windows. `src/embeddings` batches embedding requests. `src/vectordb` runs exact cosine search over the stored vectors for the active embedding model.
 - `src/retrieval`, `src/prompts`, and `src/llm` use the top matches to generate answers. Source metadata preserves page numbers, section headings, worksheet rows, slide numbers, and CSV record numbers.
@@ -103,7 +132,7 @@ In `config.yaml`, set `retrieval.mode` to `vector` to compare against vector-onl
 .\.venv\Scripts\python.exe -m pytest -q
 ```
 
-Tests use a temporary SQLite database and simulated model responses, so they run without an API key. They cover document loading, chunking, retrieval, partial success in a multi-file upload, Office citations, and the PDF OCR path with a simulated Tesseract process, and hybrid ranking with a backfilled keyword index.
+Tests use a temporary SQLite database and simulated model responses, so they run without an API key. They cover document loading, Office citations, PDF rendering with simulated OCR, hybrid retrieval and keyword backfill, multi-file uploads, the local sync lifecycle, and live indexing progress for uploads and sync.
 
 ## References
 
