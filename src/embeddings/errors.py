@@ -1,7 +1,9 @@
-from openai import OpenAIError, RateLimitError
+from openai import AuthenticationError, OpenAIError, RateLimitError
 
 
 def embedding_error_message(error: OpenAIError) -> str:
+    if isinstance(error, AuthenticationError):
+        return "OpenAI rejected the API key. Replace it in Settings or update OPENAI_API_KEY."
     if not isinstance(error, RateLimitError):
         return f"Embedding request failed ({type(error).__name__})."
     if error.code == "credit_balance_exhausted":

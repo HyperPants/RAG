@@ -3,54 +3,148 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Marginalia · Document Q&A</title>
-  <link rel="stylesheet" href="/assets/app.css?v=8">
-  <script defer src="/assets/app.js?v=8"></script>
+  <title>Atlas · Document Q&A</title>
+  <link rel="icon" href="/assets/atlas.ico">
+  <link rel="stylesheet" href="/assets/app.css?v=10">
+  <script defer src="/assets/app.js?v=10"></script>
 </head>
 <body>
   <header class="topbar">
     <div class="shell topbar-inner">
-      <a class="brand" href="/" aria-label="Marginalia home"><span class="brand-icon" aria-hidden="true">m</span> Marginalia</a>
-      <a class="docs" href="/docs">API docs <span aria-hidden="true">↗</span></a>
+      <a class="brand" href="/" aria-label="Atlas home"><span class="brand-icon" aria-hidden="true"></span> Atlas</a>
+      <div class="topbar-actions">
+        <button id="settings-open" type="button" hidden>Podešavanja</button>
+        <a class="library-link" href="#document-library">Documents</a>
+        <a class="docs" href="/docs">API docs <span aria-hidden="true">↗</span></a>
+      </div>
     </div>
   </header>
+  <dialog id="settings-dialog" class="action-dialog settings-dialog" aria-labelledby="settings-title">
+    <div class="settings-heading">
+      <h2 id="settings-title">Podešavanja</h2>
+      <button id="settings-close" type="button" aria-label="Zatvori podešavanja">×</button>
+    </div>
+    <form id="settings-form">
+      <section aria-labelledby="key-title">
+        <h3 id="key-title">Povežite OpenAI</h3>
+        <ol class="settings-steps">
+          <li>Prijavite se na OpenAI platformu i otvorite <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">API ključeve</a>.</li>
+          <li>Izaberite <strong>Create new secret key</strong> i kopirajte ključ dok je prikazan.</li>
+          <li>Proverite <a href="https://platform.openai.com/settings/organization/billing/overview" target="_blank" rel="noopener noreferrer">API naplatu i stanje kredita</a> za organizaciju kojoj pripada ključ. ChatGPT pretplata i API naplata su odvojene.</li>
+        </ol>
+        <label for="settings-key">OpenAI API ključ</label>
+        <input id="settings-key" type="password" autocomplete="new-password" spellcheck="false" placeholder="Nalepite ključ ovde">
+        <p id="settings-key-state" class="settings-hint"></p>
+      </section>
+      <section aria-labelledby="folder-title">
+        <h3 id="folder-title">Fascikla sa dokumentima</h3>
+        <label for="settings-folder">Lokalna OneDrive fascikla ili druga fascikla</label>
+        <div class="settings-folder-row">
+          <input id="settings-folder" type="text" autocomplete="off" spellcheck="false" placeholder="C:\Users\…\Documents">
+          <button id="settings-browse" type="button" hidden>Izaberi</button>
+        </div>
+        <p class="settings-hint">U OneDrive-u označite fasciklu kao <strong>Always keep on this device</strong>. Posle čuvanja koristite <strong>Sync folder</strong> za indeksiranje.</p>
+      </section>
+      <details class="settings-ocr">
+        <summary>Kako da dodam skenirane PDF dokumente?</summary>
+        <p class="settings-hint">Instalirajte <a href="https://github.com/UB-Mannheim/tesseract/wiki" target="_blank" rel="noopener noreferrer">Tesseract za Windows</a> u ponuđenu fasciklu. U instalaciji izaberite English, Serbian i Serbian (Latin). Ovaj korak je potreban za skenirane PDF-ove.</p>
+      </details>
+      <div class="dialog-actions">
+        <button id="settings-save" value="save" type="submit">Sačuvaj podešavanja</button>
+      </div>
+      <p id="settings-status" role="status"></p>
+    </form>
+  </dialog>
   <main class="shell">
     <section class="hero" aria-labelledby="title">
       <div class="hero-copy">
-        <h1 id="title">Ask your documents.</h1>
-        <p>Get answers from your indexed files and see the excerpts behind them.</p>
+        <h1 id="title">Find answers in your documents.</h1>
+        <p>Ask a question and trace the answer back to the original file.</p>
       </div>
       <form id="question-form">
         <label for="question">Your question</label>
         <div class="composer">
-          <textarea id="question" name="question" rows="2" maxlength="4000" required placeholder="What do the papers say about…"></textarea>
+          <textarea id="question" name="question" rows="2" maxlength="4000" required placeholder="Na primer, koji je rok plaćanja?"></textarea>
           <button id="submit" type="submit">Ask <span aria-hidden="true">↑</span></button>
         </div>
       </form>
       <div class="suggestions" aria-label="Example questions">
-        <button type="button">What are the main findings?</button>
-        <button type="button">Which methods were used?</button>
-        <button type="button">What limitations are mentioned?</button>
+        <button type="button">Koji su najvažniji zaključci?</button>
+        <button type="button">Koji su ugovoreni rokovi?</button>
+        <button type="button">Koje obaveze su navedene?</button>
       </div>
     </section>
-    <section class="panel upload-panel" aria-labelledby="upload-title">
-      <div>
-        <h2 id="upload-title">Add documents</h2>
-        <p id="upload-help">PDF, Word, Excel, PowerPoint, CSV, TXT, or Markdown. Select several files at once.</p>
+    <div class="workspace">
+      <div class="results">
+        <section class="panel answer-panel" aria-labelledby="answer-title">
+          <div class="panel-header">
+            <h2 id="answer-title">Answer</h2>
+          </div>
+          <p id="status" role="status">Your answer will appear here.</p>
+          <div id="answer" class="answer" tabindex="-1" hidden></div>
+          <p id="error" role="alert" hidden></p>
+        </section>
+        <section class="panel sources-panel" aria-labelledby="sources-title">
+          <div class="panel-header">
+            <h2 id="sources-title">Sources</h2>
+            <span id="source-count" class="count" hidden></span>
+          </div>
+          <p id="sources-empty">Retrieved excerpts will appear here.</p>
+          <ol id="sources" class="sources"></ol>
+        </section>
       </div>
-      <div class="upload-controls">
-        <input id="upload-files" type="file" accept=".pdf,.docx,.xlsx,.pptx,.csv,.txt,.md" multiple hidden>
-        <button id="drop-zone" type="button" aria-describedby="upload-help">
-          <span aria-hidden="true">↑</span> Choose files or drop them here
-        </button>
-      </div>
-      <p id="upload-status" role="status" hidden></p>
-      <div class="index-progress">
-        <progress id="upload-progress" aria-label="Upload indexing progress" aria-describedby="upload-progress-label" hidden></progress>
-        <p id="upload-progress-label" hidden></p>
-      </div>
-      <ul id="upload-results" class="upload-results" hidden></ul>
-    </section>
+      <aside id="document-library" class="library-rail" aria-labelledby="library-title">
+        <h2 id="library-title">Document library</h2>
+        <section class="panel upload-panel" aria-labelledby="upload-title">
+          <div>
+            <h2 id="upload-title">Add documents</h2>
+            <p id="upload-help">PDF, Word, Excel, PowerPoint, CSV, TXT, or Markdown. Select several files at once.</p>
+          </div>
+          <div class="upload-controls">
+            <input id="upload-files" type="file" accept=".pdf,.docx,.xlsx,.pptx,.csv,.txt,.md" multiple hidden>
+            <button id="drop-zone" type="button" aria-describedby="upload-help">
+              <span aria-hidden="true">↑</span> Choose files or drop them here
+            </button>
+          </div>
+          <p id="upload-status" role="status" hidden></p>
+          <div class="index-progress">
+            <progress id="upload-progress" aria-label="Upload indexing progress" aria-describedby="upload-progress-label" hidden></progress>
+            <p id="upload-progress-label" hidden></p>
+          </div>
+          <ul id="upload-results" class="upload-results" hidden></ul>
+        </section>
+        <section class="panel sync-panel" aria-labelledby="sync-title">
+          <div>
+            <h2 id="sync-title">Local folder sync</h2>
+            <p id="sync-status" role="status">Checking folder configuration…</p>
+          </div>
+          <div class="sync-actions">
+            <button id="sync-run" type="button" disabled>Sync folder</button>
+            <button id="sync-remove" type="button" hidden>Remove missing</button>
+          </div>
+          <div class="index-progress">
+            <progress id="sync-progress" aria-label="Folder indexing progress" aria-describedby="sync-progress-label" hidden></progress>
+            <p id="sync-progress-label" hidden></p>
+          </div>
+          <ul id="sync-details" hidden></ul>
+        </section>
+        <details class="panel library-panel">
+          <summary>Indexed documents <span id="library-count" class="count" hidden></span></summary>
+          <div class="library-body">
+            <div class="library-toolbar">
+              <p id="library-status" role="status">The document list will load when the page script starts.</p>
+              <button id="library-refresh" type="button">Refresh</button>
+            </div>
+            <label class="library-search-label" for="library-search">Search indexed documents</label>
+            <input id="library-search" type="search" placeholder="Filename or folder path" autocomplete="off" disabled>
+            <p id="library-matches" role="status" hidden></p>
+            <p id="library-action" role="status"></p>
+            <ul id="library-documents" class="library-documents" hidden></ul>
+            <button id="library-more" type="button" aria-controls="library-documents" hidden>Show more</button>
+          </div>
+        </details>
+      </aside>
+    </div>
     <dialog class="action-dialog" id="duplicate-dialog" aria-labelledby="duplicate-title" aria-describedby="duplicate-help">
       <h2 id="duplicate-title">These files are already indexed</h2>
       <p id="duplicate-help">Skip the matching files, or upload them anyway?</p>
@@ -68,62 +162,14 @@
         <button value="delete" class="danger-button">Delete from index</button>
       </form>
     </dialog>
-    <section class="panel sync-panel" aria-labelledby="sync-title">
-      <div>
-        <h2 id="sync-title">Local folder sync</h2>
-        <p id="sync-status" role="status">Checking folder configuration…</p>
-      </div>
-      <div class="sync-actions">
-        <button id="sync-run" type="button" disabled>Sync folder</button>
-        <button id="sync-remove" type="button" hidden>Remove missing</button>
-      </div>
-      <div class="index-progress">
-        <progress id="sync-progress" aria-label="Folder indexing progress" aria-describedby="sync-progress-label" hidden></progress>
-        <p id="sync-progress-label" hidden></p>
-      </div>
-      <ul id="sync-details" hidden></ul>
-    </section>
     <dialog class="action-dialog" id="sync-dialog" aria-labelledby="sync-dialog-title">
       <h2 id="sync-dialog-title">Remove missing documents?</h2>
-      <p>Marginalia will rescan the folder and remove still-missing documents from its index.</p>
+      <p>Atlas will rescan the folder and remove still-missing documents from its index.</p>
       <form method="dialog" class="dialog-actions">
         <button value="cancel" autofocus>Cancel</button>
         <button value="remove" class="danger-button">Remove from index</button>
       </form>
     </dialog>
-    <details class="panel library-panel">
-      <summary>Indexed documents <span id="library-count" class="count" hidden></span></summary>
-      <div class="library-body">
-        <div class="library-toolbar">
-          <p id="library-status" role="status">The document list will load when the page script starts.</p>
-          <button id="library-refresh" type="button">Refresh</button>
-        </div>
-        <label class="library-search-label" for="library-search">Search indexed documents</label>
-        <input id="library-search" type="search" placeholder="Filename or folder path" autocomplete="off" disabled>
-        <p id="library-matches" role="status" hidden></p>
-        <p id="library-action" role="status"></p>
-        <ul id="library-documents" class="library-documents" hidden></ul>
-        <button id="library-more" type="button" aria-controls="library-documents" hidden>Show more</button>
-      </div>
-    </details>
-    <div class="results">
-      <section class="panel answer-panel" aria-labelledby="answer-title">
-        <div class="panel-header">
-          <h2 id="answer-title">Answer</h2>
-        </div>
-        <p id="status" role="status">Ask a question to get started.</p>
-        <div id="answer" class="answer" tabindex="-1" hidden></div>
-        <p id="error" role="alert" hidden></p>
-      </section>
-      <section class="panel sources-panel" aria-labelledby="sources-title">
-        <div class="panel-header">
-          <h2 id="sources-title">Sources</h2>
-          <span id="source-count" class="count" hidden></span>
-        </div>
-        <p id="sources-empty">Retrieved excerpts will appear here.</p>
-        <ol id="sources" class="sources"></ol>
-      </section>
-    </div>
   </main>
 </body>
 </html>

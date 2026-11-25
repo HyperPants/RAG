@@ -10,14 +10,13 @@ import httpx
 from pypdf.errors import PyPdfError
 import uvicorn
 
-from src.api.routes import create_app
+from src.api.local_app import browser_app, user_data_directory
 from src.embeddings.embedder import Embedder
 from src.embeddings.errors import embedding_error_message
 from src.ingestion.folder_sync import FolderSync
 from src.ingestion.indexer import Indexer
-from src.llm.llm_client import LLMClient
-from src.retrieval.retriever import Retriever
 from src.utils.helpers import ROOT, configure_logging, load_config
+from src.utils.settings import LocalSettings
 from src.vectordb.vector_store import VectorStore
 
 
@@ -34,13 +33,19 @@ def main() -> None:
 
     configure_logging()
     config = load_config()
+    database = ROOT / config["database"]["path"]
+    if args.command == "serve":
+        with browser_app(config, database=database, settings=LocalSettings(user_data_directory())) as app:
+            uvicorn.run(app, host="127.0.0.1", port=args.port)
+        return
+
     if not os.getenv("OPENAI_API_KEY", "").strip():
         parser.error("Set OPENAI_API_KEY in .env or in your environment.")
 
     with OpenAI() as client:
         models = config["models"]
         embedder = Embedder(client, models["embedding"])
-        store = VectorStore(ROOT / config["database"]["path"], embedder.model)
+        store = VectorStore(database, embedder.model)
         indexer = Indexer(embedder, store, **config["chunking"])
         folder_setting = os.getenv("MARGINALIA_DOCUMENT_FOLDER", "").strip()
         folder_sync = FolderSync(ROOT / Path(os.path.expandvars(folder_setting)).expanduser(), indexer) if folder_setting else None
@@ -52,11 +57,7 @@ def main() -> None:
             if report.errors:
                 raise SystemExit(1)
             return
-        if args.command == "serve":
-            retriever = Retriever(embedder, store, **config["retrieval"])
-            uvicorn.run(create_app(retriever, LLMClient(client, models["answer"]), indexer, folder_sync=folder_sync),
-                        host="127.0.0.1", port=args.port)
-            return
+
 
         for source in args.sources:
             try:

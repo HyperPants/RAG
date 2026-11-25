@@ -13,9 +13,9 @@ def load_config():
         return yaml.safe_load(stream)
 
 
-def configure_logging():
-    path = ROOT / "logs" / "app.log"
-    path.parent.mkdir(exist_ok=True)
+def configure_logging(directory: Path = ROOT):
+    path = directory / "logs" / "app.log"
+    path.parent.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
         filename=path, level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s",
         encoding="utf-8",

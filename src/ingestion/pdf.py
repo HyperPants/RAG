@@ -1,6 +1,7 @@
 from contextlib import ExitStack, closing
 from io import BytesIO
 import os
+from pathlib import Path
 import subprocess
 from typing import BinaryIO
 
@@ -13,11 +14,17 @@ OCR_LANGUAGES = "srp_latn+srp+eng"
 
 
 def recognize_page(png: bytes, page_number: int) -> str:
-    executable = os.getenv("TESSERACT_CMD") or "tesseract"
+    executable = os.getenv("TESSERACT_CMD")
+    if not executable and os.name == "nt":
+        installed = Path(os.getenv("ProgramFiles", r"C:\Program Files")) / "Tesseract-OCR" / "tesseract.exe"
+        if installed.is_file():
+            executable = str(installed)
+    executable = executable or "tesseract"
     try:
         result = subprocess.run(
             [executable, "stdin", "stdout", "-l", OCR_LANGUAGES, "--dpi", "300", "--psm", "3"],
             input=png, capture_output=True, timeout=120,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
     except FileNotFoundError as error:
         raise ValueError(

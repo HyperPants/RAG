@@ -247,7 +247,7 @@ async function sendUploads(files, allowDuplicate = false) {
   const url = allowDuplicate ? "/ingest?allow_duplicate=true" : "/ingest";
   const response = await requestWithProgress(
     url, { method: "POST", body }, document.querySelector("#upload-progress"),
-    document.querySelector("#upload-progress-label"), "Sending files to Marginalia…",
+    document.querySelector("#upload-progress-label"), "Sending files to Atlas…",
   );
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
@@ -475,7 +475,7 @@ async function loadSyncConfiguration() {
     syncRun.disabled = !configured;
     syncStatus.textContent = configured
       ? "Index changes from your local OneDrive folder and its subfolders."
-      : "Set MARGINALIA_DOCUMENT_FOLDER in .env and restart Marginalia.";
+      : "Choose a document folder in Podešavanja.";
   } catch {
     syncStatus.textContent = "Could not check folder configuration. Reload the page to try again.";
   }
@@ -529,3 +529,81 @@ syncRemove.addEventListener("click", async () => {
   if (await confirmAction(dialog, "remove")) await syncFolder(true);
 });
 loadSyncConfiguration();
+
+const settingsOpen = document.querySelector("#settings-open");
+const settingsDialog = document.querySelector("#settings-dialog");
+const settingsForm = document.querySelector("#settings-form");
+const settingsKey = document.querySelector("#settings-key");
+const settingsFolder = document.querySelector("#settings-folder");
+const settingsBrowse = document.querySelector("#settings-browse");
+const settingsSave = document.querySelector("#settings-save");
+const settingsStatus = document.querySelector("#settings-status");
+const settingsKeyState = document.querySelector("#settings-key-state");
+
+function applySettings(settings) {
+  settingsKey.value = "";
+  settingsFolder.value = settings.document_folder;
+  settingsBrowse.hidden = !settings.can_browse;
+  settingsKeyState.textContent = settings.key_configured
+    ? "Ključ je podešen. Unesite ključ samo ako želite da ga zamenite."
+    : "Ključ još nije podešen.";
+  settingsOpen.classList.toggle("setup-needed", !settings.key_configured);
+}
+
+settingsOpen.addEventListener("click", () => {
+  settingsStatus.textContent = "";
+  if (!settingsDialog.open) settingsDialog.showModal();
+});
+document.querySelector("#settings-close").addEventListener("click", () => settingsDialog.close());
+settingsDialog.addEventListener("close", () => { settingsKey.value = ""; });
+settingsBrowse.addEventListener("click", async () => {
+  settingsBrowse.disabled = true;
+  try {
+    const response = await fetch("/settings/browse", { method: "POST" });
+    if (!response.ok) throw new Error("Otvaranje fascikle nije uspelo. Nalepite putanju u polje.");
+    const { folder } = await response.json();
+    if (folder) settingsFolder.value = folder;
+  } catch (error) {
+    settingsStatus.textContent = error.message;
+  } finally {
+    settingsBrowse.disabled = false;
+  }
+});
+settingsForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (settingsSave.disabled) return;
+  settingsSave.disabled = true;
+  settingsStatus.textContent = "Čuvanje…";
+  try {
+    const response = await fetch("/settings", {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ api_key: settingsKey.value || null, document_folder: settingsFolder.value }),
+    });
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(typeof error.detail === "string" ? error.detail : "Čuvanje nije uspelo. Proverite unete podatke.");
+    }
+    const settings = await response.json();
+    applySettings(settings);
+    settingsStatus.textContent = "Podešavanja su sačuvana.";
+    loadSyncConfiguration();
+  } catch (error) {
+    settingsStatus.textContent = error.message || "Čuvanje nije uspelo. Pokušajte ponovo.";
+  } finally {
+    settingsSave.disabled = false;
+  }
+});
+
+async function loadSettings() {
+  try {
+    const response = await fetch("/settings", { cache: "no-store" });
+    if (!response.ok) return;
+    const settings = await response.json();
+    applySettings(settings);
+    settingsOpen.hidden = false;
+    if (!settings.key_configured && !settingsDialog.open) settingsDialog.showModal();
+  } catch {
+    // Existing upload and query errors still show when settings cannot be loaded.
+  }
+}
+loadSettings();

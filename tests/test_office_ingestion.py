@@ -37,7 +37,7 @@ def test_mixed_pdf_ocr_preserves_physical_page_number(monkeypatch):
     writer.write(stream)
     stream.seek(0)
 
-    def ocr(command, *, input, capture_output, timeout):
+    def ocr(command, *, input, capture_output, timeout, creationflags):
         assert command[command.index("-l") + 1] == "srp_latn+srp+eng"
         assert input.startswith(b"\x89PNG")
         return SimpleNamespace(returncode=0, stdout="Račun · Рачун · Invoice".encode())

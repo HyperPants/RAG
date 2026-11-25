@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from contextlib import contextmanager
 import csv
 import logging
@@ -11,8 +12,10 @@ from uuid import UUID
 from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
-from openai import OpenAIError
-from pydantic import BaseModel, StringConstraints
+from starlette.middleware.trustedhost import TrustedHostMiddleware
+from keyring.errors import KeyringError
+from openai import AuthenticationError, OpenAIError
+from pydantic import BaseModel, SecretStr, StringConstraints
 from pypdf.errors import PyPdfError
 
 from src.embeddings.errors import embedding_error_message
@@ -22,6 +25,7 @@ from src.ingestion.progress import IndexProgress, ProgressSnapshot
 from src.llm.llm_client import LLMClient
 from src.prompts.prompt_templates import NO_SOURCES
 from src.retrieval.retriever import Retriever
+from src.utils.settings import LocalSettings
 from src.vectordb.vector_store import IndexedDocument
 
 
@@ -49,6 +53,17 @@ class UploadResult(BaseModel):
     duplicate_source: str | None = None
 
 
+class SettingsUpdate(BaseModel):
+    api_key: SecretStr | None = None
+    document_folder: str | None = None
+
+
+class SettingsStatus(BaseModel):
+    key_configured: bool
+    document_folder: str
+    can_browse: bool
+
+
 def require_same_origin(request: Request) -> None:
     origin = request.headers.get("origin")
     if origin and origin != f"{request.url.scheme}://{request.url.netloc}":
@@ -58,8 +73,13 @@ def require_same_origin(request: Request) -> None:
 def create_app(
     retriever: Retriever, llm: LLMClient, indexer: Indexer | None = None, *,
     folder_sync: FolderSync | None = None,
+    settings: LocalSettings | None = None,
+    folder_picker: Callable[[], str] | None = None,
+    sync_provider: Callable[[], FolderSync | None] | None = None,
 ) -> FastAPI:
-    app = FastAPI(title="RAG")
+    app = FastAPI(title="Atlas")
+    if settings is not None:
+        app.add_middleware(TrustedHostMiddleware, allowed_hosts=["127.0.0.1", "localhost"])
     web_dir = Path(__file__).with_name("web")
     app.mount("/assets", StaticFiles(directory=web_dir), name="assets")
 
@@ -97,18 +117,59 @@ def create_app(
     def health():
         return {"status": "ok"}
 
+    def require_key() -> None:
+        if settings is not None and not settings.api_key():
+            raise HTTPException(status_code=503, detail="Add an OpenAI API key in Settings to get started.")
+
+    def current_sync() -> FolderSync | None:
+        return sync_provider() if sync_provider is not None else folder_sync
+
+    @app.get("/settings")
+    def settings_status() -> SettingsStatus:
+        if settings is None:
+            raise HTTPException(status_code=404, detail="Local setup is unavailable.")
+        return SettingsStatus(
+            key_configured=bool(settings.api_key()), document_folder=settings.folder(),
+            can_browse=folder_picker is not None,
+        )
+
+    @app.put("/settings")
+    def save_settings(request: Request, update: SettingsUpdate) -> SettingsStatus:
+        require_same_origin(request)
+        if settings is None:
+            raise HTTPException(status_code=404, detail="Local setup is unavailable.")
+        try:
+            settings.save(update.api_key.get_secret_value() if update.api_key else None, update.document_folder)
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+        except (KeyringError, OSError) as error:
+            raise HTTPException(status_code=503, detail="Windows could not save the settings. Please try again.") from error
+        return settings_status()
+
+    @app.post("/settings/browse")
+    def browse_folder(request: Request) -> dict[str, str]:
+        require_same_origin(request)
+        if folder_picker is None:
+            raise HTTPException(status_code=404, detail="Folder browsing is unavailable.")
+        try:
+            return {"folder": folder_picker()}
+        except (RuntimeError, TimeoutError) as error:
+            raise HTTPException(status_code=503, detail="Could not open the folder picker. You can paste the folder path.") from error
+
     @app.get("/sync")
     def sync_configuration() -> dict[str, bool]:
-        return {"configured": folder_sync is not None}
+        return {"configured": current_sync() is not None}
 
     @app.post("/sync")
     def synchronize(request: Request, remove_missing: bool = False, progress_id: UUID | None = None) -> SyncReport:
         require_same_origin(request)
-        if folder_sync is None:
-            raise HTTPException(status_code=503, detail="Set MARGINALIA_DOCUMENT_FOLDER in .env and restart Marginalia.")
+        require_key()
+        active_sync = current_sync()
+        if active_sync is None:
+            raise HTTPException(status_code=503, detail="Choose a document folder in Settings.")
         try:
             with track_progress(progress_id) as progress:
-                return folder_sync.run(remove_missing=remove_missing, progress=progress)
+                return active_sync.run(remove_missing=remove_missing, progress=progress)
         except SyncBusy as error:
             raise HTTPException(status_code=409, detail=str(error)) from error
 
@@ -131,6 +192,7 @@ def create_app(
         progress_id: UUID | None = None,
     ) -> list[UploadResult]:
         require_same_origin(request)
+        require_key()
         if indexer is None:
             raise HTTPException(status_code=503, detail="Document indexing is unavailable.")
 
@@ -160,9 +222,12 @@ def create_app(
 
     @app.post("/query", response_model=Answer)
     def query(payload: Question) -> Answer:
+        require_key()
         try:
             hits = retriever.retrieve(payload.question)
             answer = llm.answer(payload.question, hits) if hits else NO_SOURCES
+        except AuthenticationError as error:
+            raise HTTPException(status_code=502, detail="OpenAI rejected the API key. Replace it in Settings.") from error
         except OpenAIError as error:
             logging.error("OpenAI request failed (%s)", type(error).__name__)
             raise HTTPException(status_code=502, detail="The model provider request failed.") from error

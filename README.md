@@ -1,8 +1,30 @@
-# RAG
+# Atlas
 
-A local retrieval-augmented generation (RAG) app for asking questions about your documents. Its browser interface, **Marginalia**, supports batch uploads of PDFs and Office documents, combines keyword and semantic search, and answers in Serbian Latin with citations to the original source locations.
+Atlas is a local document assistant with a browser interface and a portable Windows app. It supports batch uploads of PDFs and Office documents, combines keyword and semantic search, and answers in Serbian Latin with citations to the original source locations.
 
-## Quick start
+## Windows desktop app
+
+Extract `Atlas-Windows-x64.zip`, open the `Atlas` folder, and double-click `Atlas.exe`. Keep the executable and its `_internal` folder together. The app opens in your default browser. Use **Zatvori aplikaciju** in the small Atlas window to stop it.
+
+1. Open **Podešavanja** if it did not open automatically. Follow the on-page links to create an OpenAI API key and check API billing for the key’s organization. Paste the key and select **Sačuvaj podešavanja**. API billing is separate from ChatGPT billing.
+2. In **Fascikla sa dokumentima**, use **Izaberi** to choose your local OneDrive folder or paste its path. For OneDrive, make the folder available offline in File Explorer. Save, then use **Sync folder** in the **Document library**.
+3. Ask a question after indexing finishes. If you want to use scanned PDFs, follow the optional Tesseract instructions in **Podešavanja**. Tesseract is a separate Windows installation.
+
+The Windows app saves the OpenAI key in Windows Credential Manager. Its settings, logs, and SQLite index live under `%LOCALAPPDATA%\Marginalia`. Atlas uses the same Windows Credential Manager entry and data folder as earlier Marginalia builds, so your saved setup and index carry over. The developer server continues to use the repository’s configured database.
+
+### Build the Windows bundle
+
+From a Windows checkout with a working project virtual environment, install PyInstaller in that environment and run the build script in PowerShell.
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install "pyinstaller>=6,<7"
+.\build_windows.ps1
+```
+
+The bundle is in `dist/Atlas/`. Distribute that entire folder, for example as a ZIP. The build includes the application, Python runtime, and browser assets. It does not copy the repository’s `.env`, index, or documents.
+
+
+## Developer quick start
 
 Install Python 3.12 or later. From the repository root in PowerShell, create a virtual environment and install the dependencies. If you already have a `.venv`, rerun just the second command to install the current dependencies.
 
@@ -11,7 +33,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
 ```
 
-Set `OPENAI_API_KEY` in your local `.env`. On a fresh clone, create the file with `Copy-Item .env.example .env` first. An environment variable of the same name takes precedence. The key needs access to the OpenAI API.
+Set the OpenAI API key in **Podešavanja** when you open the browser interface. For CLI ingestion and sync, set `OPENAI_API_KEY` in your local `.env` or environment. On a fresh clone, run `Copy-Item .env.example .env` first. The browser server uses the key saved in your system credential store when one is available, and uses the environment or `.env` as a fallback.
 
 Start the server:
 
@@ -19,14 +41,14 @@ Start the server:
 .\.venv\Scripts\python.exe main.py serve
 ```
 
-## Upload and ask in Marginalia
+## Upload and ask in Atlas
 
-1. Open [Marginalia](http://127.0.0.1:8000/).
+1. Open Atlas from the Windows launcher, or open [the developer server](http://127.0.0.1:8000/) if you started it manually. Use **Documents** in the header to jump to the **Document library**.
 2. In **Add documents**, click **Choose files** or drag files onto the drop zone. You can add multiple PDFs, Word (.docx), Excel (.xlsx), PowerPoint (.pptx), UTF-8 CSV, plain text, or Markdown files in one batch. Scanned PDFs require the OCR setup below.
 3. Watch the progress bar for the current file, indexing stage, and embedding progress. The upload summary reports the result for each file. Successful files are ready to query immediately, even if some files in the batch fail.
-4. Ask a question, such as “Koji je rok plaćanja za ugovor UG-42/2025?” Select a numbered citation in the answer to open the retrieved excerpt and see its source location.
+4. Ask a question, such as “Koji je rok plaćanja za ugovor UG-42/2025?” The **Answer** and **Sources** panels sit beside the library on wider screens and stack on smaller screens. Select a numbered citation to open the original excerpt and see its source location.
 
-Open **Indexed documents** to see the first five sources and their excerpt counts. **Show more** reveals five more at a time, and **Show less** returns to the first five. Search by filename or folder path to see every match across the full index. The list updates after uploads and folder sync. Use **Refresh** after indexing files or URLs from another terminal. To remove an outdated source, choose **Delete** next to it and confirm. This removes its excerpts and embeddings for the active model from the index. The original file stays on disk. The extracted excerpts and vectors persist in SQLite across restarts. Marginalia checks for matching files and identical indexed excerpts before embedding an upload. If it finds a match, you can skip the file or choose **Upload anyway**. Confirming an identical upload with the same name refreshes its existing entry. A matching file with a different name gets a separate entry.
+Open **Indexed documents** to see the first five sources and their excerpt counts. **Show more** reveals five more at a time, and **Show less** returns to the first five. Search by filename or folder path to see every match across the full index. The list updates after uploads and folder sync. Use **Refresh** after indexing files or URLs from another terminal. To remove an outdated source, choose **Delete** next to it and confirm. This removes its excerpts and embeddings for the active model from the index. The original file stays on disk. The extracted excerpts and vectors persist in SQLite across restarts. Atlas checks for matching files and identical indexed excerpts before embedding an upload. If it finds a match, you can skip the file or choose **Upload anyway**. Confirming an identical upload with the same name refreshes its existing entry. A matching file with a different name gets a separate entry.
 
 ## Document extraction
 
@@ -63,12 +85,12 @@ Folder sync uses the files available in Windows File Explorer. It searches subfo
 2. Add the folder path to your local `.env`. Use the path from your own laptop.
 
    ```dotenv
-   MARGINALIA_DOCUMENT_FOLDER="C:/Users/YourName/OneDrive/Marginalia-Test"
+   MARGINALIA_DOCUMENT_FOLDER="C:/Users/YourName/OneDrive/Atlas-Test"
    ```
 
-3. Restart Marginalia and select **Sync folder** under **Local folder sync**. The progress bar shows what is being processed, and the summary gives the counts for added, updated, unchanged, missing, and removed files. Ask a question about a known fact, such as “Koji je rok plaćanja za ugovor UG-42?” Open the citation to check the relative filename and its page, section, worksheet row, or slide.
+3. Restart Atlas and select **Sync folder** under **Local folder sync**. The progress bar shows what is being processed, and the summary gives the counts for added, updated, unchanged, missing, and removed files. Ask a question about a known fact, such as “Koji je rok plaćanja za ugovor UG-42?” Open the citation to check the relative filename and its page, section, worksheet row, or slide.
 4. Select **Sync folder** again. The same files should be reported as unchanged, with no new embedding calls. Add or edit a sample file, wait for OneDrive to finish, and sync again to see it marked as added or updated.
-5. Move a sample file out of the folder and sync again. Marginalia reports it as missing and keeps its indexed copy until you select **Remove missing** and confirm. That action rescans before removing entries from SQLite.
+5. Move a sample file out of the folder and sync again. Atlas reports it as missing and keeps its indexed copy until you select **Remove missing** and confirm. That action rescans before removing entries from SQLite.
 
 Run the same workflow from PowerShell, including when the browser server is stopped:
 
@@ -77,7 +99,7 @@ Run the same workflow from PowerShell, including when the browser server is stop
 .\.venv\Scripts\python.exe main.py sync --remove-missing
 ```
 
-A sync with unreadable files, online-only placeholders, or inaccessible subfolders keeps the previously indexed copies and skips removal. After OneDrive finishes downloading or a file is repaired, sync again. Marginalia skips temporary Office owner files, symbolic links, and directory junctions. The app never deletes files from OneDrive.
+A sync with unreadable files, online-only placeholders, or inaccessible subfolders keeps the previously indexed copies and skips removal. After OneDrive finishes downloading or a file is repaired, sync again. Atlas skips temporary Office owner files, symbolic links, and directory junctions. The app never deletes files from OneDrive.
 
 The sync stores a SHA-256 digest for each managed source in SQLite. It reads locally available files to check their digests and embeds only new or changed files. The digest, excerpts, vectors, and keyword index are updated together after a successful import. Synced documents are scoped to their configured folder and embedding model. Browser uploads and standalone CLI imports remain separate. Switching folders preserves entries from earlier folders. Use a fresh database for a separate company collection or remove old entries through **Indexed documents**.
 
@@ -110,7 +132,7 @@ Question -> SQLite keyword search + embedding similarity -> merged ranking -> Se
 ```
 
 - `main.py` wires together the CLI and FastAPI server. Uploads, CLI imports, and folder sync share the indexer and loader in `src/ingestion`, with separate parsers in `pdf.py`, `word.py`, `excel.py`, and `powerpoint.py`.
-- `src/api` provides the upload and query endpoints. `src/api/web` contains the HTML, CSS, and JavaScript for Marginalia.
+- `src/api` provides the upload and query endpoints. `src/api/web` contains the HTML, CSS, and JavaScript for Atlas.
 - `src/chunking` normalizes whitespace and creates overlapping character windows. `src/embeddings` batches embedding requests. `src/vectordb` runs exact cosine search over the stored vectors for the active embedding model.
 - `src/retrieval`, `src/prompts`, and `src/llm` use the top matches to generate answers. Source metadata preserves page numbers, section headings, worksheet rows, slide numbers, and CSV record numbers.
 - `config.yaml` sets the models, chunk size and overlap, database path, and number of matches. Relative database paths are resolved from the repository root. Reindex your sources after changing the embedding model or chunk settings.
@@ -120,7 +142,7 @@ Ingestion sends extracted text to OpenAI for embedding. Queries send the questio
 
 ## Hybrid retrieval
 
-Marginalia combines vector similarity with SQLite FTS5 search over excerpt text, filenames, and source locations such as Word headings and Excel sheet names. Keyword search matches Serbian Latin and Cyrillic through a normalized index. Reciprocal Rank Fusion merges the two ranked lists. Exact references such as `UG-42/2025` or `C12` get a ranking boost, and citations retain the original text and location.
+Atlas combines vector similarity with SQLite FTS5 search over excerpt text, filenames, and source locations such as Word headings and Excel sheet names. Keyword search matches Serbian Latin and Cyrillic through a normalized index. Reciprocal Rank Fusion merges the two ranked lists. Exact references such as `UG-42/2025` or `C12` get a ranking boost, and citations retain the original text and location.
 
 The first startup builds the keyword index from existing SQLite chunks. It uses no new embedding requests and requires no reuploads. Adds, replacements, and deletions update both indexes in the same transaction.
 
