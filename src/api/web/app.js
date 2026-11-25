@@ -341,6 +341,7 @@ const libraryAction = document.querySelector("#library-action");
 const librarySearch = document.querySelector("#library-search");
 const libraryMatches = document.querySelector("#library-matches");
 const libraryMore = document.querySelector("#library-more");
+const libraryLess = document.querySelector("#library-less");
 const libraryPageSize = 5;
 let libraryLimit = libraryPageSize;
 let libraryRows = [];
@@ -392,8 +393,8 @@ function filterLibrary() {
   libraryMatches.textContent = visible.length
     ? "Showing " + visible.length + " of " + libraryRows.length + " documents."
     : "No indexed documents match your search.";
-  libraryMore.hidden = Boolean(query) || libraryRows.length <= libraryPageSize;
-  libraryMore.textContent = libraryLimit < libraryRows.length ? "Show more" : "Show less";
+  libraryMore.hidden = Boolean(query) || libraryLimit >= libraryRows.length;
+  libraryLess.hidden = Boolean(query) || visible.length <= libraryPageSize;
 }
 
 async function refreshLibrary() {
@@ -446,6 +447,7 @@ async function refreshLibrary() {
     librarySearch.disabled = true;
     libraryMatches.hidden = true;
     libraryMore.hidden = true;
+    libraryLess.hidden = true;
     libraryCount.hidden = true;
     libraryDocuments.hidden = true;
     libraryStatus.textContent = "Could not load indexed documents. Try refreshing the list.";
@@ -457,8 +459,14 @@ async function refreshLibrary() {
 libraryRefresh.addEventListener("click", refreshLibrary);
 librarySearch.addEventListener("input", filterLibrary);
 libraryMore.addEventListener("click", () => {
-  libraryLimit = libraryLimit < libraryRows.length ? libraryLimit + libraryPageSize : libraryPageSize;
+  libraryLimit += libraryPageSize;
   filterLibrary();
+  if (libraryMore.hidden) libraryLess.focus();
+});
+libraryLess.addEventListener("click", () => {
+  libraryLimit = libraryPageSize;
+  filterLibrary();
+  libraryMore.focus();
 });
 refreshLibrary();
 

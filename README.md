@@ -48,7 +48,7 @@ Start the server:
 3. Watch the progress bar for the current file, indexing stage, and embedding progress. The upload summary reports the result for each file. Successful files are ready to query immediately, even if some files in the batch fail.
 4. Ask a question, such as “Koji je rok plaćanja za ugovor UG-42/2025?” The **Answer** and **Sources** panels sit beside the library on wider screens and stack on smaller screens. Select a numbered citation to open the original excerpt and see its source location.
 
-Open **Indexed documents** to see the first five sources and their excerpt counts. **Show more** reveals five more at a time, and **Show less** returns to the first five. Search by filename or folder path to see every match across the full index. The list updates after uploads and folder sync. Use **Refresh** after indexing files or URLs from another terminal. To remove an outdated source, choose **Delete** next to it and confirm. This removes its excerpts and embeddings for the active model from the index. The original file stays on disk. The extracted excerpts and vectors persist in SQLite across restarts. Atlas checks for matching files and identical indexed excerpts before embedding an upload. If it finds a match, you can skip the file or choose **Upload anyway**. Confirming an identical upload with the same name refreshes its existing entry. A matching file with a different name gets a separate entry.
+Open **Indexed documents** to see the first five sources and their excerpt counts. **Show more** reveals five more at a time, and **Show less** is available as soon as the list expands. Search by filename or folder path to see every match across the full index. The list updates after uploads and folder sync. Use **Refresh** after indexing files or URLs from another terminal. To remove an outdated source, choose **Delete** next to it and confirm. This removes its excerpts and embeddings for the active model from the index. The original file stays on disk. The extracted excerpts and vectors persist in SQLite across restarts. Atlas checks for matching files and identical indexed excerpts before embedding an upload. If it finds a match, you can skip the file or choose **Upload anyway**. Confirming an identical upload with the same name refreshes its existing entry. A matching file with a different name gets a separate entry.
 
 ## Document extraction
 
@@ -65,17 +65,28 @@ Answers default to Serbian Latin script, with citations to the original files. S
 
 ### Scanned PDF setup on Windows
 
-1. Install Tesseract 5 using the Windows installer linked from the [Tesseract installation guide](https://tesseract-ocr.github.io/tessdoc/Installation).
-2. Put `eng.traineddata`, `srp_latn.traineddata`, and `srp.traineddata` in its `tessdata` folder. Use the language packs included in the installer or download the files from [Tesseract's language data repository](https://github.com/tesseract-ocr/tessdata_fast).
-3. If Tesseract is outside your PATH, set `TESSERACT_CMD` in `.env` to the full executable path, for example `TESSERACT_CMD="C:/Program Files/Tesseract-OCR/tesseract.exe"`. Restart the server after editing `.env`.
+Atlas uses Tesseract only on PDF pages that contain images and have no extractable text. You can set it up entirely in File Explorer.
 
-Verify the installed language packs in PowerShell:
+1. Download the 64-bit Tesseract 5 installer from the [UB Mannheim Windows builds](https://github.com/UB-Mannheim/tesseract/wiki). Run it and use the default installation folder `C:\Program Files\Tesseract-OCR`. Atlas detects the executable there automatically.
+2. In the installer, choose English, Serbian, and Serbian (Latin) under the language data options if offered. After installation, open `C:\Program Files\Tesseract-OCR\tessdata` in File Explorer and check for these files:
+
+   | Language | Data file |
+   | --- | --- |
+   | English | [eng.traineddata](https://github.com/tesseract-ocr/tessdata_fast/blob/main/eng.traineddata) |
+   | Serbian Cyrillic | [srp.traineddata](https://github.com/tesseract-ocr/tessdata_fast/blob/main/srp.traineddata) |
+   | Serbian Latin | [srp_latn.traineddata](https://github.com/tesseract-ocr/tessdata_fast/blob/main/srp_latn.traineddata) |
+
+3. If a file is missing, open its link in the table and select **Download raw file** on GitHub. Copy the downloaded `.traineddata` file into `tessdata`. Windows may request administrator permission.
+4. Quit Atlas using the small launcher window, reopen `Atlas.exe`, and upload a short scanned PDF. Ask about a known line and open the citation to check the recognized text and page number. If you previously tried the same file and indexing failed, upload it again or rerun folder sync.
+
+For an optional PowerShell check, the following command should list `eng`, `srp`, and `srp_latn`:
 
 ```powershell
 & 'C:\Program Files\Tesseract-OCR\tesseract.exe' --list-langs
 ```
 
-The list should include `eng` (English), `srp_latn` (Serbian Latin), and `srp` (Serbian Cyrillic). The app runs OCR locally and keeps the original PDF page number on each excerpt.
+For a custom installation location, add the Tesseract executable’s folder to your Windows PATH and restart Atlas. When running the developer server, you can alternatively set `TESSERACT_CMD` in `.env` to the full executable path. OCR runs locally and retains the original PDF page numbers.
+
 
 ## Sync a local OneDrive folder
 

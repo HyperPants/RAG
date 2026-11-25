@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Atlas · Document Q&A</title>
   <link rel="icon" href="/assets/atlas.ico">
-  <link rel="stylesheet" href="/assets/app.css?v=10">
-  <script defer src="/assets/app.js?v=10"></script>
+  <link rel="stylesheet" href="/assets/app.css?v=11">
+  <script defer src="/assets/app.js?v=11"></script>
 </head>
 <body>
   <header class="topbar">
@@ -46,8 +46,14 @@
         <p class="settings-hint">U OneDrive-u označite fasciklu kao <strong>Always keep on this device</strong>. Posle čuvanja koristite <strong>Sync folder</strong> za indeksiranje.</p>
       </section>
       <details class="settings-ocr">
-        <summary>Kako da dodam skenirane PDF dokumente?</summary>
-        <p class="settings-hint">Instalirajte <a href="https://github.com/UB-Mannheim/tesseract/wiki" target="_blank" rel="noopener noreferrer">Tesseract za Windows</a> u ponuđenu fasciklu. U instalaciji izaberite English, Serbian i Serbian (Latin). Ovaj korak je potreban za skenirane PDF-ove.</p>
+        <summary>Kako da podesim OCR za skenirane PDF-ove?</summary>
+        <p class="settings-hint">OCR prepoznaje tekst na skeniranim stranicama. Za PDF sa tekstom koji možete da označite dovoljan je sam Atlas.</p>
+        <ol class="settings-steps">
+          <li>Preuzmite 64-bitni instalacioni program sa <a href="https://github.com/UB-Mannheim/tesseract/wiki" target="_blank" rel="noopener noreferrer">stranice Tesseract za Windows</a>. Pokrenite ga i ostavite podrazumevanu lokaciju <code>C:\Program Files\Tesseract-OCR</code>.</li>
+          <li>U izboru dodatnih jezika označite engleski, srpski i srpski (latinica), ako su ponuđeni. U File Explorer-u otvorite <code>C:\Program Files\Tesseract-OCR\tessdata</code> i proverite da li postoje <code>eng.traineddata</code>, <code>srp.traineddata</code> (ćirilica) i <code>srp_latn.traineddata</code> (latinica).</li>
+          <li>Ako neki nedostaje, preuzmite ga iz <a href="https://github.com/tesseract-ocr/tessdata_fast" target="_blank" rel="noopener noreferrer">Tesseract repozitorijuma jezika</a>. Otvorite odgovarajuću datoteku, kliknite <strong>Download raw file</strong> i kopirajte je u fasciklu <code>tessdata</code>. Windows može tražiti administratorsku dozvolu.</li>
+          <li>Zatvorite Atlas iz malog prozora aplikacije, ponovo pokrenite <strong>Atlas.exe</strong> i dodajte kratak skenirani PDF za probu. Otvorite citat da proverite tekst i broj stranice.</li>
+        </ol>
       </details>
       <div class="dialog-actions">
         <button id="settings-save" value="save" type="submit">Sačuvaj podešavanja</button>
@@ -140,7 +146,10 @@
             <p id="library-matches" role="status" hidden></p>
             <p id="library-action" role="status"></p>
             <ul id="library-documents" class="library-documents" hidden></ul>
-            <button id="library-more" type="button" aria-controls="library-documents" hidden>Show more</button>
+            <div class="library-pagination">
+              <button id="library-more" type="button" aria-controls="library-documents" hidden>Show more</button>
+              <button id="library-less" type="button" aria-controls="library-documents" hidden>Show less</button>
+            </div>
           </div>
         </details>
       </aside>

@@ -143,16 +143,17 @@ h2 { font: 400 1.52rem/1.2 var(--display); letter-spacing: -.025em; }
 .library-documents li > div { min-width: 0; overflow-wrap: anywhere; }
 .library-row-actions { display: flex; align-items: end; flex-direction: column; gap: 4px; }
 .library-excerpts { color: var(--muted); font-size: .75rem; white-space: nowrap; }
-#library-more, #library-action { margin-top: 8px; }
+.library-pagination { display: flex; flex-wrap: wrap; gap: 8px; }
+.library-pagination button, #library-action { margin-top: 8px; }
 #library-action { font-size: .87rem; overflow-wrap: anywhere; }
 #library-action:empty { display: none; }
 
-#library-refresh, #library-more, .library-delete, .sync-actions button, .dialog-actions button,
+#library-refresh, .library-pagination button, .library-delete, .sync-actions button, .dialog-actions button,
 #settings-open, #settings-close, #settings-browse {
   border: 1px solid #bfcac2; border-radius: 8px; padding: 6px 10px;
   background: var(--card); color: var(--ink); font-size: .85rem; font-weight: 650;
 }
-#library-refresh:hover, #library-more:hover, .sync-actions button:hover,
+#library-refresh:hover, .library-pagination button:hover, .sync-actions button:hover,
 .dialog-actions button:hover, #settings-open:hover, #settings-close:hover, #settings-browse:hover { background: var(--tint); }
 #sync-run, #settings-open.setup-needed, #settings-save, .dialog-actions button[value="upload"] {
   background: var(--accent); border-color: var(--accent); color: white;
@@ -181,6 +182,7 @@ h2 { font: 400 1.52rem/1.2 var(--display); letter-spacing: -.025em; }
 .settings-steps { padding-left: 20px; }
 .settings-steps li + li, .settings-hint { margin-top: 5px; }
 .settings-ocr { margin-top: 12px; font-size: .86rem; }
+.settings-ocr code { overflow-wrap: anywhere; }
 #settings-status { margin-top: 8px; font-size: .89rem; }
 #settings-status:empty { display: none; }
 
