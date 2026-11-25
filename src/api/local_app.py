@@ -1,5 +1,6 @@
 from contextlib import contextmanager
 import os
+import sys
 from pathlib import Path
 
 from openai import OpenAI
@@ -15,6 +16,8 @@ from src.vectordb.vector_store import VectorStore
 
 
 def user_data_directory() -> Path:
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Atlas"
     if local_app_data := os.getenv("LOCALAPPDATA"):
         return Path(local_app_data) / "Marginalia"
     return Path.home() / ".marginalia"

@@ -1,6 +1,6 @@
 # Atlas
 
-Atlas is a local document assistant with a browser interface and a portable Windows app. It supports batch uploads of PDFs and Office documents, combines keyword and semantic search, and answers in Serbian Latin with citations to the original source locations.
+Atlas is a local document assistant with a browser interface and desktop bundles for Windows and macOS. It supports batch uploads of PDFs and Office documents, combines keyword and semantic search, and answers in Serbian Latin with citations to the original source locations.
 
 ## Windows desktop app
 
@@ -22,6 +22,41 @@ From a Windows checkout with a working project virtual environment, install PyIn
 ```
 
 The bundle is in `dist/Atlas/`. Distribute that entire folder, for example as a ZIP. The build includes the application, Python runtime, and browser assets. It does not copy the repository’s `.env`, index, or documents.
+
+
+## macOS desktop app
+
+Choose `Atlas-macOS-arm64.zip` for an Apple silicon Mac (Apple M-series), or `Atlas-macOS-x64.zip` for an Intel Mac. **Apple menu → About This Mac** shows the chip or processor.
+
+1. Double-click the ZIP in Finder, then move `Atlas.app` to **Applications** and open it. The bundle includes Python and opens Atlas in your default browser.
+2. In **Podešavanja**, enter your OpenAI key, click **Izaberi** to pick your local folder, and save. Atlas saves the key in the macOS Keychain. If macOS asks for folder access, grant access to the folder you chose.
+3. For OneDrive, choose the synced folder in Finder, usually under `~/Library/CloudStorage/`, and mark it **Always keep on this device**. Wait for OneDrive to download the files, then click **Sync folder** in Atlas. [OneDrive on macOS](https://support.microsoft.com/en-us/onedrive/missing-files-and-autosave-issues-with-onedrive-on-macos)
+4. Use **Zatvori aplikaciju** in the small Atlas window to quit. Atlas keeps its settings, SQLite index, and logs in `~/Library/Application Support/Atlas`.
+
+The test build is ad-hoc signed and has no Apple notarization. Gatekeeper may ask for a first-launch approval on downloads. For a build you trust, follow [Apple’s first-launch instructions](https://support.apple.com/en-us/102445). On a managed company Mac, the administrator may need to approve the app.
+
+For scans only, install the optional Tesseract language bundle using Homebrew. This is a one-time setup step that the person setting up the Mac can do. Atlas looks for Tesseract on PATH and in the standard Apple silicon and Intel Homebrew locations. [Tesseract languages on Homebrew](https://formulae.brew.sh/formula/tesseract-lang)
+
+```bash
+brew install tesseract-lang
+tesseract --list-langs
+```
+
+Check that the list contains `eng`, `srp`, and `srp_latn`. Restart Atlas and upload a short scanned PDF to test it.
+
+### Build the macOS ZIPs
+
+Use **Actions → Build Atlas for macOS → Run workflow** after the workflow is on GitHub’s default branch. It builds and checks both Mac architectures on native macOS runners. In the completed run, download the artifact for your Mac. GitHub wraps it in an outer download ZIP. Extract that first to get the named Atlas ZIP to send or attach to a GitHub Release. [GitHub macOS runners](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+
+To build locally, use Python 3.12 with Tk on a Mac and run these commands from the repository:
+
+```bash
+python3.12 -m venv .venv
+./.venv/bin/python -m pip install -r requirements.txt 'pyinstaller>=6,<7'
+bash build_macos.sh
+```
+
+The builder produces `dist/Atlas.app` and the ZIP for the Python interpreter’s architecture. You can set `ATLAS_MACOS_SIGN_IDENTITY` to use a Developer ID signing identity when building. Notarization is a separate distribution step.
 
 
 ## Developer quick start

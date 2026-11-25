@@ -1,6 +1,7 @@
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 from threading import RLock
@@ -11,7 +12,8 @@ import keyring
 from src.ingestion.folder_sync import FolderSync
 from src.ingestion.indexer import Indexer
 
-SERVICE = "Marginalia"
+# Keep the existing Windows credential entry when upgrading from Marginalia.
+SERVICE = "Atlas" if sys.platform == "darwin" else "Marginalia"
 ACCOUNT = "OpenAI API key"
 
 

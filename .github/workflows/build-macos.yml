@@ -1,0 +1,38 @@
+name: Build Atlas for macOS
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    name: Package macOS (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            arch: arm64
+          - runner: macos-15-intel
+            arch: x64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: ${{ matrix.arch }}
+          cache: pip
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt 'pyinstaller>=6,<7'
+      - name: Run tests
+        run: python -m pytest -q tests
+      - name: Build and verify Atlas.app
+        run: ATLAS_PYTHON=python bash build_macos.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Atlas-macOS-${{ matrix.arch }}
+          path: dist/Atlas-macOS-${{ matrix.arch }}.zip
+          if-no-files-found: error

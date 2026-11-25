@@ -5,8 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Atlas · Document Q&A</title>
   <link rel="icon" href="/assets/atlas.ico">
-  <link rel="stylesheet" href="/assets/app.css?v=11">
-  <script defer src="/assets/app.js?v=11"></script>
+  <link rel="stylesheet" href="/assets/app.css?v=12">
+  <script defer src="/assets/app.js?v=12"></script>
 </head>
 <body>
   <header class="topbar">
@@ -40,7 +40,7 @@
         <h3 id="folder-title">Fascikla sa dokumentima</h3>
         <label for="settings-folder">Lokalna OneDrive fascikla ili druga fascikla</label>
         <div class="settings-folder-row">
-          <input id="settings-folder" type="text" autocomplete="off" spellcheck="false" placeholder="C:\Users\…\Documents">
+          <input id="settings-folder" type="text" autocomplete="off" spellcheck="false" placeholder="Putanja do fascikle">
           <button id="settings-browse" type="button" hidden>Izaberi</button>
         </div>
         <p class="settings-hint">U OneDrive-u označite fasciklu kao <strong>Always keep on this device</strong>. Posle čuvanja koristite <strong>Sync folder</strong> za indeksiranje.</p>
@@ -48,11 +48,16 @@
       <details class="settings-ocr">
         <summary>Kako da podesim OCR za skenirane PDF-ove?</summary>
         <p class="settings-hint">OCR prepoznaje tekst na skeniranim stranicama. Za PDF sa tekstom koji možete da označite dovoljan je sam Atlas.</p>
-        <ol class="settings-steps">
+        <ol class="settings-steps" id="ocr-windows">
           <li>Preuzmite 64-bitni instalacioni program sa <a href="https://github.com/UB-Mannheim/tesseract/wiki" target="_blank" rel="noopener noreferrer">stranice Tesseract za Windows</a>. Pokrenite ga i ostavite podrazumevanu lokaciju <code>C:\Program Files\Tesseract-OCR</code>.</li>
           <li>U izboru dodatnih jezika označite engleski, srpski i srpski (latinica), ako su ponuđeni. U File Explorer-u otvorite <code>C:\Program Files\Tesseract-OCR\tessdata</code> i proverite da li postoje <code>eng.traineddata</code>, <code>srp.traineddata</code> (ćirilica) i <code>srp_latn.traineddata</code> (latinica).</li>
           <li>Ako neki nedostaje, preuzmite ga iz <a href="https://github.com/tesseract-ocr/tessdata_fast" target="_blank" rel="noopener noreferrer">Tesseract repozitorijuma jezika</a>. Otvorite odgovarajuću datoteku, kliknite <strong>Download raw file</strong> i kopirajte je u fasciklu <code>tessdata</code>. Windows može tražiti administratorsku dozvolu.</li>
           <li>Zatvorite Atlas iz malog prozora aplikacije, ponovo pokrenite <strong>Atlas.exe</strong> i dodajte kratak skenirani PDF za probu. Otvorite citat da proverite tekst i broj stranice.</li>
+        </ol>
+        <ol class="settings-steps" id="ocr-macos" hidden>
+          <li>Ako imate <a href="https://brew.sh/" target="_blank" rel="noopener noreferrer">Homebrew</a>, u Terminalu pokrenite <code>brew install tesseract-lang</code>. Time dobijate Tesseract i dodatne jezike. Ako ne koristite Terminal, zamolite osobu koja vam podešava računar da uradi ovaj korak.</li>
+          <li>Komanda <code>tesseract --list-langs</code> treba da prikaže <code>eng</code>, <code>srp</code> i <code>srp_latn</code>.</li>
+          <li>Zatvorite i ponovo otvorite <strong>Atlas.app</strong>, pa dodajte kratak skenirani PDF. Otvorite citat da proverite tekst i broj stranice.</li>
         </ol>
       </details>
       <div class="dialog-actions">

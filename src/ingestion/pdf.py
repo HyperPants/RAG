@@ -2,7 +2,9 @@ from contextlib import ExitStack, closing
 from io import BytesIO
 import os
 from pathlib import Path
+import shutil
 import subprocess
+import sys
 from typing import BinaryIO
 
 from pypdf import PdfReader
@@ -19,6 +21,14 @@ def recognize_page(png: bytes, page_number: int) -> str:
         installed = Path(os.getenv("ProgramFiles", r"C:\Program Files")) / "Tesseract-OCR" / "tesseract.exe"
         if installed.is_file():
             executable = str(installed)
+    if not executable and sys.platform == "darwin":
+        executable = shutil.which("tesseract")
+        if not executable:
+            for prefix in ("/opt/homebrew", "/usr/local"):
+                installed = Path(prefix) / "bin" / "tesseract"
+                if installed.is_file():
+                    executable = str(installed)
+                    break
     executable = executable or "tesseract"
     try:
         result = subprocess.run(

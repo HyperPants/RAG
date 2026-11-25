@@ -143,7 +143,7 @@ def create_app(
         except ValueError as error:
             raise HTTPException(status_code=422, detail=str(error)) from error
         except (KeyringError, OSError) as error:
-            raise HTTPException(status_code=503, detail="Windows could not save the settings. Please try again.") from error
+            raise HTTPException(status_code=503, detail="Atlas could not save the settings in the system credential store or data folder. Please try again.") from error
         return settings_status()
 
     @app.post("/settings/browse")

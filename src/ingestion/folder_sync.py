@@ -5,6 +5,7 @@ import os
 from pathlib import Path
 import sqlite3
 import stat
+from sys import platform
 from threading import Lock
 
 from openai import OpenAIError
@@ -17,6 +18,8 @@ from src.ingestion.progress import IndexProgress
 
 # Win32 FILE_ATTRIBUTE_OFFLINE, RECALL_ON_OPEN and RECALL_ON_DATA_ACCESS.
 CLOUD_ONLY_ATTRIBUTES = 0x1000 | 0x40000 | 0x400000
+# Darwin's File Provider can mark locally unmaterialized files as SF_DATALESS.
+MACOS_DATALESS = getattr(stat, "SF_DATALESS", 0x40000000)
 
 
 class LocalFileUnavailable(OSError):
@@ -37,9 +40,15 @@ class SyncReport:
     errors: dict[str, str] = field(default_factory=dict)
 
 
+def is_cloud_only(status: os.stat_result) -> bool:
+    if platform == "darwin":
+        return bool(getattr(status, "st_flags", 0) & MACOS_DATALESS)
+    return bool(getattr(status, "st_file_attributes", 0) & CLOUD_ONLY_ATTRIBUTES)
+
+
 def local_stat(path: Path) -> os.stat_result:
     status = path.lstat()
-    if getattr(status, "st_file_attributes", 0) & CLOUD_ONLY_ATTRIBUTES:
+    if is_cloud_only(status):
         raise LocalFileUnavailable("Not fully downloaded. In OneDrive, choose Always keep on this device.")
     return status
 
@@ -86,7 +95,7 @@ class FolderSync:
                             is_directory = stat.S_ISDIR(status.st_mode)
                             if not is_directory and path.suffix.lower() not in SUPPORTED_SUFFIXES:
                                 continue
-                            if getattr(status, "st_file_attributes", 0) & CLOUD_ONLY_ATTRIBUTES:
+                            if is_cloud_only(status):
                                 raise LocalFileUnavailable("Not fully downloaded. Make it available offline in OneDrive.")
                             if is_directory:
                                 folders.append(path)
