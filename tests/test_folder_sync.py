@@ -53,7 +53,7 @@ def test_local_sync_lifecycle_through_api(tmp_path):
         assert client.get("/sync").json() == {"configured": True}
         assert client.post("/sync", headers={"Origin": "https://other.example"}).status_code == 403
         assert client.post("/sync").json() == {
-            "added": 1, "modified": 0, "unchanged": 0, "deleted": 0, "missing": [], "errors": {},
+            "added": 1, "modified": 0, "unchanged": 0, "deleted": 0, "duplicates": {}, "missing": [], "errors": {},
         }
         contract.touch()
         before = len(calls)
@@ -134,3 +134,61 @@ def test_file_that_changes_during_embedding_keeps_previous_index(tmp_path):
     assert store.search([1.0], 1)[0].text == "Original"
     assert sync.run().modified == 1
     assert store.search([1.0], 1)[0].text == "Final changed content"
+
+
+def test_sync_indexes_one_copy_and_reuses_it_when_original_moves(tmp_path):
+    root = tmp_path / "OneDrive"
+    first = root / "Elaborati" / "CV.txt"
+    second = root / "Prezentacije" / "CV.txt"
+    different = root / "Razno" / "CV.txt"
+    for path, content in [(first, "Unique biography"), (second, "Unique biography"), (different, "Another biography")]:
+        path.parent.mkdir(parents=True)
+        path.write_text(content, encoding="utf-8")
+
+    embedding_calls = []
+    embedder = SimpleNamespace(embed=lambda texts: embedding_calls.append(texts) or [[1.0] for _ in texts])
+    store = VectorStore(tmp_path / "index.sqlite3", "test")
+    sync = FolderSync(root, Indexer(embedder, store, size=100, overlap=0))
+    report = sync.run()
+    assert report.added == 2
+    assert report.duplicates == {"Prezentacije/CV.txt": "Elaborati/CV.txt"}
+    assert len(embedding_calls) == 2
+    assert store.search_keywords("unique", [1.0], 10)[0][0].source.endswith("/Elaborati/CV.txt")
+    assert sync.run().unchanged == 2
+    assert len(embedding_calls) == 2
+
+    first.unlink()
+    report = sync.run()
+    assert not report.errors and not report.missing
+    assert len(embedding_calls) == 2
+    assert store.search_keywords("unique", [1.0], 10)[0][0].source.endswith("/Prezentacije/CV.txt")
+    assert second.read_text(encoding="utf-8") == "Unique biography"
+    assert len(store.list_documents()) == 2
+
+
+def test_sync_consolidates_old_duplicates_without_reembedding(tmp_path):
+    from hashlib import sha256
+
+    from src.chunking.chunker import Chunk
+
+    root = tmp_path / "OneDrive"
+    content = b"Previously indexed"
+    digest = sha256(content).hexdigest()
+    embedder = SimpleNamespace(embed=lambda texts: (_ for _ in ()).throw(AssertionError("Unexpected embedding")))
+    store = VectorStore(tmp_path / "index.sqlite3", "test")
+    sync = FolderSync(root, Indexer(embedder, store, size=100, overlap=0))
+    for relative in ("Elaborati/CV.txt", "Prezentacije/CV.txt"):
+        path = root / relative
+        path.parent.mkdir(parents=True)
+        path.write_bytes(content)
+        store.replace(
+            sync.prefix + relative, [Chunk(content.decode(), "document")], [[1.0]], sync_digest=digest,
+        )
+
+    report = sync.run()
+    assert not report.errors
+    assert report.duplicates == {"Prezentacije/CV.txt": "Elaborati/CV.txt"}
+    assert len(store.list_documents()) == 1
+    assert len(store.search_keywords("previously", [1.0], 10)) == 1
+    assert (root / "Elaborati" / "CV.txt").is_file()
+    assert (root / "Prezentacije" / "CV.txt").is_file()

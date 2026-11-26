@@ -506,14 +506,21 @@ async function syncFolder(removeMissing = false) {
     }
     const report = await response.json();
     const issues = Object.entries(report.errors);
+    const duplicates = Object.entries(report.duplicates || {});
     syncStatus.textContent = [
       report.added + " added", report.modified + " updated", report.unchanged + " unchanged",
       report.deleted + " removed", report.missing.length + " missing",
+      ...(duplicates.length ? [duplicates.length + " duplicates skipped"] : []),
       ...(issues.length ? [issues.length + " issues. Unverified entries were kept."] : []),
     ].join(" · ");
     for (const [path, reason] of issues) {
       const row = document.createElement("li");
       row.textContent = path === "." ? reason : path + " — " + reason;
+      syncDetails.append(row);
+    }
+    for (const [copy, kept] of duplicates) {
+      const row = document.createElement("li");
+      row.textContent = copy + " — same file as " + kept;
       syncDetails.append(row);
     }
     for (const path of report.missing) {

@@ -120,6 +120,43 @@ class VectorStore:
                 (self.model, source),
             )
 
+    def move_synced_document(self, donor: str, source: str, digest: str) -> None:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if self._sync_digest(connection, donor) != digest or self._sync_digest(connection, source) is not None:
+                raise SyncConflict("The index changed during synchronization. Try again.")
+            result = connection.execute(
+                "UPDATE chunks SET source = ? WHERE model = ? AND source = ?",
+                (source, self.model, donor),
+            )
+            if not result.rowcount:
+                raise SyncConflict("The indexed copy is unavailable. Try again.")
+            self._delete_source(connection, donor)
+            connection.execute(
+                "UPDATE synced_documents SET source = ? WHERE model = ? AND source = ?",
+                (source, self.model, donor),
+            )
+            self._index_keywords(
+                connection,
+                "SELECT model, source, ordinal, location, content FROM chunks WHERE model = ? AND source = ?",
+                (self.model, source),
+            )
+
+    def discard_synced_duplicate(
+        self, source: str, expected_digest: str, kept_source: str, kept_digest: str,
+    ) -> None:
+        with closing(sqlite3.connect(self.path)) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if (
+                self._sync_digest(connection, kept_source) != kept_digest
+                or self._sync_digest(connection, source) != expected_digest
+            ):
+                raise SyncConflict("The index changed during synchronization. Try again.")
+            self._delete_source(connection, source)
+            connection.execute(
+                "DELETE FROM synced_documents WHERE model = ? AND source = ?", (self.model, source),
+            )
+
     def find_upload(self, digest: str) -> str | None:
         with closing(sqlite3.connect(self.path)) as connection:
             row = connection.execute(

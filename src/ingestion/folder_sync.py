@@ -36,6 +36,7 @@ class SyncReport:
     modified: int = 0
     unchanged: int = 0
     deleted: int = 0
+    duplicates: dict[str, str] = field(default_factory=dict)
     missing: list[str] = field(default_factory=list)
     errors: dict[str, str] = field(default_factory=dict)
 
@@ -55,6 +56,17 @@ def local_stat(path: Path) -> os.stat_result:
 
 def signature(status: os.stat_result) -> tuple[int, int, int, int, int]:
     return status.st_dev, status.st_ino, status.st_size, status.st_mtime_ns, status.st_ctime_ns
+
+
+@dataclass(frozen=True)
+class FileRevision:
+    path: Path
+    digest: str
+    version: tuple[int, int, int, int, int]
+
+    def check_current(self) -> None:
+        if signature(local_stat(self.path)) != self.version:
+            raise LocalFileUnavailable("The file changed during synchronization. Try again after OneDrive finishes.")
 
 
 class FolderSync:
@@ -109,29 +121,33 @@ class FolderSync:
                 errors[folder.relative_to(self.root).as_posix()] = "Could not list this folder."
         return files
 
-    def _process_file(
-        self, path: Path, source: str, previous: str | None, progress: IndexProgress | None,
-    ) -> str:
+    @staticmethod
+    def _fingerprint(path: Path) -> FileRevision:
         before = local_stat(path)
         if not stat.S_ISREG(before.st_mode):
             raise LocalFileUnavailable("This path is no longer a regular file.")
         expected = signature(before)
-
-        def check_current() -> None:
-            if signature(local_stat(path)) != expected:
-                raise LocalFileUnavailable("The file changed during synchronization. Try again after OneDrive finishes.")
-
         with path.open("rb") as stream:
-            # Windows may expose creation time through lstat and change time through fstat.
+            # Windows exposes different ctime values in lstat and fstat.
             if signature(os.fstat(stream.fileno()))[:4] != expected[:4]:
                 raise LocalFileUnavailable("The file changed before it could be read. Try again.")
             digest = file_digest(stream, "sha256").hexdigest()
-            check_current()
-            if digest == previous:
-                return "unchanged"
-            stream.seek(0)
-            self.indexer.index_synced_file(source, stream, path.suffix.lower(), digest, previous, check_current, progress)
-        return "added" if previous is None else "modified"
+        revision = FileRevision(path, digest, expected)
+        revision.check_current()
+        return revision
+
+    def _index_revision(
+        self, revision: FileRevision, source: str, previous: str | None,
+        progress: IndexProgress | None,
+    ) -> None:
+        revision.check_current()
+        with revision.path.open("rb") as stream:
+            if signature(os.fstat(stream.fileno()))[:4] != revision.version[:4]:
+                raise LocalFileUnavailable("The file changed before it could be read. Try again.")
+            self.indexer.index_synced_file(
+                source, stream, revision.path.suffix.lower(), revision.digest,
+                previous, revision.check_current, progress,
+            )
 
     def run(
         self, *, remove_missing: bool = False, progress: IndexProgress | None = None,
@@ -153,13 +169,62 @@ class FolderSync:
 
         previous = self.store.synced_documents(self.prefix)
         files = self._scan(report.errors)
-        for completed, (relative, path) in enumerate(sorted(files.items())):
-            if progress is not None:
-                progress.file(len(files), completed, relative)
-            source = self.prefix + relative
+        groups: dict[tuple[str, str], dict[str, FileRevision]] = {}
+        for relative, path in sorted(files.items()):
             try:
-                outcome = self._process_file(path, source, previous.get(source), progress)
-                setattr(report, outcome, getattr(report, outcome) + 1)
+                revision = self._fingerprint(path)
+                key = (path.suffix.lower(), revision.digest)
+                groups.setdefault(key, {})[relative] = revision
+            except LocalFileUnavailable as error:
+                report.errors[relative] = str(error)
+            except OSError:
+                report.errors[relative] = "Could not read this file. Any existing entry was kept."
+
+        indexed_by_digest: dict[tuple[str, str], str] = {}
+        for source, digest in sorted(previous.items()):
+            indexed_by_digest.setdefault((Path(source).suffix.lower(), digest), source)
+        current = previous.copy()
+        aliases: list[tuple[str, FileRevision, str, FileRevision]] = []
+
+        # Preserve already-indexed content before replacing changed paths.
+        ordered_groups = sorted(groups, key=lambda key: (key not in indexed_by_digest, key))
+        for completed, key in enumerate(ordered_groups):
+            group = groups[key]
+            digest = key[1]
+            donor = indexed_by_digest.get(key)
+            if donor is not None and current.get(donor) != digest:
+                donor = None
+            relative = next(
+                (name for name in group if current.get(self.prefix + name) == digest),
+                None,
+            )
+            if relative is None and donor is not None:
+                relative = next((name for name in group if self.prefix + name not in current), None)
+            relative = relative or next(iter(group))
+            source = self.prefix + relative
+            revision = group[relative]
+            if progress is not None:
+                progress.file(len(groups), completed, relative)
+            try:
+                revision.check_current()
+                old_digest = current.get(source)
+                if old_digest == digest:
+                    report.unchanged += 1
+                elif donor is not None and old_digest is None:
+                    self.store.move_synced_document(donor, source, digest)
+                    current.pop(donor)
+                    report.unchanged += 1
+                else:
+                    self._index_revision(revision, source, old_digest, progress)
+                    if old_digest is None:
+                        report.added += 1
+                    else:
+                        report.modified += 1
+                current[source] = digest
+                aliases.extend(
+                    (name, copy, relative, revision)
+                    for name, copy in group.items() if name != relative
+                )
             except OpenAIError as error:
                 report.errors[relative] = embedding_error_message(error)
             except (LocalFileUnavailable, ValueError) as error:
@@ -167,12 +232,26 @@ class FolderSync:
             except (OSError, PyPdfError, csv.Error, sqlite3.Error):
                 report.errors[relative] = "Could not read or index this file. Any existing entry was kept."
 
+        for relative, copy, kept, revision in aliases:
+            try:
+                copy.check_current()
+                revision.check_current()
+                source = self.prefix + relative
+                if source in current:
+                    self.store.discard_synced_duplicate(
+                        source, current[source], self.prefix + kept, revision.digest,
+                    )
+                    current.pop(source)
+                report.duplicates[relative] = kept
+            except (OSError, ValueError, sqlite3.Error):
+                report.errors[relative] = "Could not verify both copies. Any existing entry was kept."
+
         if not report.errors:
-            report.missing = sorted(source[len(self.prefix):] for source in previous if source[len(self.prefix):] not in files)
+            report.missing = sorted(source[len(self.prefix):] for source in current if source[len(self.prefix):] not in files)
             if remove_missing and report.missing:
                 if progress is not None:
                     progress.removing()
-                self._remove_missing(report, previous, files, identity)
+                self._remove_missing(report, current, files, identity)
         return report
 
     def _remove_missing(
