@@ -199,3 +199,17 @@ h2 { font: 400 1.52rem/1.2 var(--display); letter-spacing: -.025em; }
   .hero { border-radius: 17px; padding: 20px; }
   .panel { padding: 15px; }
 }
+
+.ocr-guide { max-width: 820px; }
+.ocr-guide h1 { font-size: clamp(2.5rem, 5vw, 3.8rem); }
+.ocr-guide p, .ocr-guide li { line-height: 1.65; }
+.ocr-intro { margin: 14px 0 20px; color: var(--muted); }
+.ocr-platforms { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 18px; }
+.ocr-platforms a { padding: 7px 13px; border-radius: 8px; background: var(--tint); color: var(--accent-dark); }
+.ocr-guide section + section { margin-top: 14px; }
+.ocr-guide section { scroll-margin-top: 18px; }
+.ocr-guide ol { padding-left: 22px; }
+.ocr-guide li + li { margin-top: 12px; }
+.ocr-guide h2 + p { margin-top: 10px; }
+.ocr-guide code { overflow-wrap: anywhere; }
+.ocr-guide pre { padding: 10px 12px; border-radius: 8px; background: var(--tint); white-space: pre-wrap; }

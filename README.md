@@ -8,7 +8,7 @@ Extract `Atlas-Windows-x64.zip`, open the `Atlas` folder, and double-click `Atla
 
 1. Open **Podešavanja** if it did not open automatically. Follow the on-page links to create an OpenAI API key and check API billing for the key’s organization. Paste the key and select **Sačuvaj podešavanja**. API billing is separate from ChatGPT billing.
 2. In **Fascikla sa dokumentima**, use **Izaberi** to choose your local OneDrive folder or paste its path. For OneDrive, make the folder available offline in File Explorer. Save, then use **Sync folder** in the **Document library**.
-3. Ask a question after indexing finishes. If you want to use scanned PDFs, follow the optional Tesseract instructions in **Podešavanja**. Tesseract is a separate Windows installation.
+3. Ask a question after indexing finishes. If you want to use scanned PDFs, open the separate OCR setup guide from **Podešavanja**. Tesseract is a separate Windows installation.
 
 The Windows app saves the OpenAI key in Windows Credential Manager. Its settings, logs, and SQLite index live under `%LOCALAPPDATA%\Marginalia`. Atlas uses the same Windows Credential Manager entry and data folder as earlier Marginalia builds, so your saved setup and index carry over. The developer server continues to use the repository’s configured database.
 
@@ -35,7 +35,7 @@ Choose `Atlas-macOS-arm64.zip` for an Apple silicon Mac (Apple M-series), or `At
 
 The test build is ad-hoc signed and has no Apple notarization. Gatekeeper may ask for a first-launch approval on downloads. For a build you trust, follow [Apple’s first-launch instructions](https://support.apple.com/en-us/102445). On a managed company Mac, the administrator may need to approve the app.
 
-For scans only, install the optional Tesseract language bundle using Homebrew. This is a one-time setup step that the person setting up the Mac can do. Atlas looks for Tesseract on PATH and in the standard Apple silicon and Intel Homebrew locations. [Tesseract languages on Homebrew](https://formulae.brew.sh/formula/tesseract-lang)
+For scans only, open the separate OCR setup guide from **Podešavanja** or visit `/ocr-setup` on the running Atlas server. Install the optional Tesseract language bundle using Homebrew. This is a one-time setup step that the person setting up the Mac can do. Atlas looks for Tesseract on PATH and in the standard Apple silicon and Intel Homebrew locations. [Tesseract languages on Homebrew](https://formulae.brew.sh/formula/tesseract-lang)
 
 ```bash
 brew install tesseract-lang

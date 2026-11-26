@@ -19,7 +19,7 @@ from src.utils.settings import CredentialVault, LocalSettings
 
 
 def check_bundle() -> None:
-    for asset in ("index.html", "app.css", "app.js", "atlas.ico"):
+    for asset in ("index.html", "ocr-setup.html", "app.css", "app.js", "atlas.ico"):
         if not (ROOT / "src" / "api" / "web" / asset).is_file():
             raise FileNotFoundError(f"Missing Atlas browser asset: {asset}")
     with TemporaryDirectory() as scratch:

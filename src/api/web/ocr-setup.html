@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="sr-Latn">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Podešavanje OCR-a · Atlas</title>
+  <link rel="icon" href="/assets/atlas.ico">
+  <link rel="stylesheet" href="/assets/app.css?v=13">
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="/"><span class="brand-icon" aria-hidden="true"></span> Atlas</a>
+      <a class="library-link" href="/">Nazad na Atlas</a>
+    </div>
+  </header>
+  <main class="shell ocr-guide">
+    <h1>Podešavanje OCR-a</h1>
+    <p class="ocr-intro">Tesseract prepoznaje tekst sa skeniranih PDF stranica. Ako u PDF-u možete da označite i kopirate tekst, ovaj korak obično možete preskočiti.</p>
+    <nav class="ocr-platforms" aria-label="Operativni sistem">
+      <a href="#macos">macOS</a>
+      <a href="#windows">Windows</a>
+    </nav>
+    <section id="macos" class="panel" aria-labelledby="macos-title">
+      <h2 id="macos-title">macOS</h2>
+      <ol>
+        <li><strong>Instalirajte Homebrew.</strong> Ako ga već imate, pređite na sledeći korak. Na <a href="https://brew.sh/">zvaničnoj stranici Homebrew-a</a> pratite uputstvo za macOS. Možete koristiti ponuđeni <code>.pkg</code> instalacioni program ili komandu sa te stranice. Ako instalacija prikaže korake pod nazivom <strong>Next steps</strong>, pratite ih pre nastavka.</li>
+        <li><strong>Instalirajte Tesseract i jezike.</strong> Otvorite <strong>Terminal</strong> preko Spotlight pretrage (⌘ + Space). Nalepite ovu komandu i pritisnite Enter. Paket <a href="https://formulae.brew.sh/formula/tesseract-lang">tesseract-lang</a> uključuje dodatne jezike i instalira Tesseract ako nedostaje.
+          <pre><code>brew install tesseract-lang</code></pre>
+        </li>
+        <li><strong>Proverite jezike.</strong> Pokrenite sledeću komandu. Na spisku treba da vidite <code>eng</code> (engleski), <code>srp</code> (srpska ćirilica) i <code>srp_latn</code> (srpska latinica).
+          <pre><code>tesseract --list-langs</code></pre>
+        </li>
+      </ol>
+      <p>Ako Terminal javlja <code>command not found: brew</code>, ponovo otvorite Terminal i proverite korake <strong>Next steps</strong> iz instalacije Homebrew-a. Atlas automatski traži Tesseract u uobičajenim Homebrew fasciklama na Apple silicon i Intel računarima.</p>
+    </section>
+    <section id="windows" class="panel" aria-labelledby="windows-title">
+      <h2 id="windows-title">Windows</h2>
+      <ol>
+        <li>Preuzmite 64-bitni <a href="https://github.com/UB-Mannheim/tesseract/wiki">Tesseract za Windows</a>. Pokrenite instalaciju i ostavite podrazumevanu lokaciju <code>C:\Program Files\Tesseract-OCR</code>.</li>
+        <li>Ako instalacija nudi izbor jezika, označite engleski, srpski i srpski (latinica). U File Explorer-u otvorite <code>C:\Program Files\Tesseract-OCR\tessdata</code>.</li>
+        <li>Proverite da li su tu <code>eng.traineddata</code>, <code>srp.traineddata</code> i <code>srp_latn.traineddata</code>. Ako neki nedostaje, otvorite odgovarajuću datoteku u <a href="https://github.com/tesseract-ocr/tessdata_fast">Tesseract repozitorijumu jezika</a>, izaberite <strong>Download raw file</strong> i kopirajte je u <code>tessdata</code>. Windows može tražiti administratorsku dozvolu.</li>
+      </ol>
+    </section>
+    <section class="panel" aria-labelledby="ocr-test-title">
+      <h2 id="ocr-test-title">Proverite da li OCR radi</h2>
+      <p>Zatvorite Atlas iz malog prozora aplikacije i ponovo ga otvorite. Dodajte kratak skenirani PDF i pitajte nešto o tekstu koji vidite na stranici. Otvorite citat da proverite prepoznati tekst i broj strane. Ako prethodni pokušaj nije uspeo, ponovo dodajte dokument ili ponovite sinhronizaciju fascikle.</p>
+    </section>
+  </main>
+</body>
+</html>

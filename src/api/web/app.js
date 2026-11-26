@@ -614,8 +614,4 @@ async function loadSettings() {
     // Existing upload and query errors still show when settings cannot be loaded.
   }
 }
-if (navigator.platform.startsWith("Mac")) {
-  document.querySelector("#ocr-windows").hidden = true;
-  document.querySelector("#ocr-macos").hidden = false;
-}
 loadSettings();

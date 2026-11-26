@@ -46,7 +46,14 @@ def test_first_run_settings_enable_sync_without_restart(tmp_path, monkeypatch):
     with local_app.browser_app(
         config, database=tmp_path / "index.sqlite3", settings=settings, folder_picker=lambda: str(folder),
     ) as app, TestClient(app, base_url="http://localhost:8000") as client:
-        assert client.get("/").status_code == 200
+        home = client.get("/")
+        assert home.status_code == 200
+        assert 'href="/ocr-setup"' in home.text
+        guide = client.get("/ocr-setup")
+        assert guide.status_code == 200
+        assert 'id="macos"' in guide.text and 'id="windows"' in guide.text
+        assert "brew install tesseract-lang" in guide.text
+        assert "srp_latn" in guide.text
         assert client.get("/settings").json() == {
             "key_configured": False, "document_folder": "", "can_browse": True,
         }

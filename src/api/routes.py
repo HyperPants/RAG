@@ -113,6 +113,10 @@ def create_app(
     def index() -> FileResponse:
         return FileResponse(web_dir / "index.html", headers={"Cache-Control": "no-cache"})
 
+    @app.get("/ocr-setup", include_in_schema=False)
+    def ocr_setup() -> FileResponse:
+        return FileResponse(web_dir / "ocr-setup.html", headers={"Cache-Control": "no-cache"})
+
     @app.get("/health")
     def health():
         return {"status": "ok"}
